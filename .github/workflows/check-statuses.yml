@@ -1,0 +1,103 @@
+on:
+  workflow_dispatch:
+
+name: Check Venue Statuses
+
+jobs:
+  check_cineworld:
+    name: Check Cineworld
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: node scripts/check-cineworld-ids.js
+
+  check_curzon:
+    name: Check Curzon
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: npx playwright install --with-deps
+      - run: node scripts/check-curzon-ids.js
+
+  check_everyman:
+    name: Check Everyman
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: node scripts/check-everyman-ids.js
+
+  check_myvue:
+    name: Check Vue
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: node scripts/check-myvue-ids.js
+
+  check_odeon:
+    name: Check Odeon
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: npx playwright install --with-deps
+      - run: node scripts/check-odeon-ids.js
+
+  check_omniplex:
+    name: Check Omniplex
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: node scripts/check-omniplex-ids.js
+
+  check_picturehouse:
+    name: Check Picturehouse
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: npx playwright install --with-deps
+      - run: node scripts/check-picturehouse-ids.js

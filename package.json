@@ -1,0 +1,39 @@
+{
+  "name": "data-analysed",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cinema analysis scripts for discovering and validating cinema data",
+  "author": "Alistair Brown <github@alistairjcbrown.com>",
+  "license": "MIT",
+  "scripts": {
+    "check:coordinates": "node scripts/check-coordinates.js",
+    "check:cineworld-ids": "node scripts/check-cineworld-ids.js",
+    "check:curzon-ids": "node scripts/check-curzon-ids.js",
+    "check:everyman-ids": "node scripts/check-everyman-ids.js",
+    "check:myvue-ids": "node scripts/check-myvue-ids.js",
+    "check:odeon-ids": "node scripts/check-odeon-ids.js",
+    "check:omniplex-ids": "node scripts/check-omniplex-ids.js",
+    "check:picturehouse-ids": "node scripts/check-picturehouse-ids.js",
+    "discover:designmynight": "node scripts/discover-designmynight-venues.js",
+    "discover:dice": "node scripts/discover-dice-venues.js",
+    "discover:eventbrite": "node scripts/discover-eventbrite-venues.js",
+    "discover:outsavvy": "node scripts/discover-outsavvy-venues.js",
+    "discover:ticketsource": "node scripts/discover-ticketsource-venues.js",
+    "find:openstreetmap": "node scripts/find-cinemas-openstreetmap.js",
+    "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
+    "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",
+    "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
+    "generate:map": "node scripts/generate-map-file.js"
+  },
+  "dependencies": {
+    "@placemarkio/tokml": "^0.3.7",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "html-entities": "^2.5.2",
+    "playwright": "^1.49.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "scripts": "github:clusterflick/scripts",
+    "slugify": "^1.6.6"
+  }
+}
