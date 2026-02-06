@@ -9,9 +9,10 @@ jobs:
     runs-on: self-hosted
     env:
       TZ: Europe/London
-      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
     steps:
       - uses: actions/checkout@v4
+      - name: Set Playwright path
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -50,9 +51,10 @@ jobs:
     runs-on: self-hosted
     env:
       TZ: Europe/London
-      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
     steps:
       - uses: actions/checkout@v4
+      - name: Set Playwright path
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -64,9 +66,10 @@ jobs:
     runs-on: self-hosted
     env:
       TZ: Europe/London
-      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
     steps:
       - uses: actions/checkout@v4
+      - name: Set Playwright path
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -92,9 +95,10 @@ jobs:
     runs-on: self-hosted
     env:
       TZ: Europe/London
-      PLAYWRIGHT_BROWSERS_PATH: $HOME/.cache/playwright-browsers
     steps:
       - uses: actions/checkout@v4
+      - name: Set Playwright path
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
