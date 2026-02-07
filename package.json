@@ -23,7 +23,8 @@
     "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
     "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",
     "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
-    "generate:map": "node scripts/generate-map-file.js"
+    "generate:map": "node scripts/generate-map-file.js",
+    "track:movie": "node scripts/track-movie-over-time.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",
