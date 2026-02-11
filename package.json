@@ -23,6 +23,7 @@
     "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
     "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",
     "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
+    "convert:boundary-data": "node scripts/convert-boundary-data.js",
     "generate:map": "node scripts/generate-map-file.js",
     "track:movie": "node scripts/track-movie-over-time.js"
   },
@@ -31,6 +32,7 @@
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.4.5",
     "html-entities": "^2.5.2",
+    "mapshaper": "^0.6.113",
     "playwright": "^1.49.0",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
