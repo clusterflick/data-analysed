@@ -5,6 +5,10 @@
   "description": "Cinema analysis scripts for discovering and validating cinema data",
   "author": "Alistair Brown <github@alistairjcbrown.com>",
   "license": "MIT",
+  "files": [
+    "data/London_GLA_Boundary.geojson",
+    "data/boroughs/"
+  ],
   "scripts": {
     "check:coordinates": "node scripts/check-coordinates.js",
     "check:cineworld-ids": "node scripts/check-cineworld-ids.js",
