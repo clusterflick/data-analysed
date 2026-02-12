@@ -840,7 +840,7 @@ function compareReleases(currentDir, previousDir, currentTag, previousTag) {
     console.log(
       `${c.bold}${c.red}Exiting with code 1 due to CRITICAL findings.${c.reset}`,
     );
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
