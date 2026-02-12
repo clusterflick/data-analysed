@@ -18,7 +18,9 @@ async function findCinemasOpenStreetMap() {
   const cinemaNames = getAllCinemaNames();
   const cinemas = cinemaNames.map((cinemaName) => getCinema(cinemaName));
 
-  const data = await readJSON(path.resolve(__dirname, "../data/openstreetmap.json"));
+  const data = await readJSON(
+    path.resolve(__dirname, "../data/openstreetmap.json"),
+  );
   let count = 0;
 
   data.elements.forEach(({ tags: { name, website }, lat, lon, geometry }) => {

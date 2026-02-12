@@ -29,7 +29,8 @@
     "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
     "convert:boundary-data": "node scripts/convert-boundary-data.js",
     "generate:map": "node scripts/generate-map-file.js",
-    "track:movie": "node scripts/track-movie-over-time.js"
+    "track:movie": "node scripts/track-movie-over-time.js",
+    "compare:releases": "node scripts/compare-releases.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",

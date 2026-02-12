@@ -1,0 +1,59 @@
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [compare_releases]
+
+name: Compare Releases
+
+jobs:
+  compare:
+    name: Compare Transformed Releases
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+
+      - name: Get release tags
+        id: tags
+        run: |
+          CURRENT=$(gh api repos/clusterflick/data-transformed/releases?per_page=10 \
+            --jq 'sort_by(.published_at) | reverse | .[0].tag_name')
+          PREVIOUS=$(gh api repos/clusterflick/data-transformed/releases?per_page=10 \
+            --jq 'sort_by(.published_at) | reverse | .[1].tag_name')
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT, Previous: $PREVIOUS"
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+
+      - name: Download current release
+        uses: clusterflick/release-downloader@v1
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-transformed"
+          tag: ${{ steps.tags.outputs.current }}
+          fileName: "*"
+          out-file-path: "transformed-data/current"
+
+      - name: Download previous release
+        uses: clusterflick/release-downloader@v1
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-transformed"
+          tag: ${{ steps.tags.outputs.previous }}
+          fileName: "*"
+          out-file-path: "transformed-data/previous"
+
+      - run: npm run compare:releases -- transformed-data/current transformed-data/previous ${{ steps.tags.outputs.current }} ${{ steps.tags.outputs.previous }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comparison-report
+          path: output/
+          retention-days: 90

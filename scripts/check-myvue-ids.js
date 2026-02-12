@@ -25,21 +25,23 @@ async function checkMyvueIds() {
     if (!nextDataScript) {
       throw new Error(
         `No __NEXT_DATA__ found for cinema ${id} (${whatsOnUrl}). ` +
-        `The page structure may have changed.`
+          `The page structure may have changed.`,
       );
     }
     const nextData = JSON.parse(nextDataScript);
-    const coordsValue = nextData?.props?.pageProps?.layoutData?.sitecore?.context?.cinema?.cinemaLocationCoordinates?.value;
+    const coordsValue =
+      nextData?.props?.pageProps?.layoutData?.sitecore?.context?.cinema
+        ?.cinemaLocationCoordinates?.value;
     if (!coordsValue) {
       throw new Error(
         `No cinemaLocationCoordinates found in __NEXT_DATA__ for cinema ${id} (${whatsOnUrl}). ` +
-        `The data structure may have changed.`
+          `The data structure may have changed.`,
       );
     }
     const match = coordsValue.split(",");
     if (match.length !== 2) {
       throw new Error(
-        `Coordinates for cinema ${id} don't match expected format: "${coordsValue}".`
+        `Coordinates for cinema ${id} don't match expected format: "${coordsValue}".`,
       );
     }
     const [lat, lon] = match;

@@ -63,7 +63,9 @@ function searchMovies(data, term) {
 
     for (const showing of Object.values(movie.showings)) {
       const displayTitle = showing.title || movie.title;
-      const showingTitleMatches = displayTitle.toLowerCase().includes(lowerTerm);
+      const showingTitleMatches = displayTitle
+        .toLowerCase()
+        .includes(lowerTerm);
 
       if (!movieTitleMatches && !showingTitleMatches) continue;
 
@@ -85,7 +87,8 @@ function searchMovies(data, term) {
 
   // Sort by venue name, then by title for consistent output
   results.sort(
-    (a, b) => a.venueName.localeCompare(b.venueName) || a.title.localeCompare(b.title),
+    (a, b) =>
+      a.venueName.localeCompare(b.venueName) || a.title.localeCompare(b.title),
   );
 
   return results;
@@ -95,8 +98,18 @@ function formatDate(dateStr) {
   const date = new Date(dateStr + "T12:00:00Z");
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
   return `${days[date.getUTCDay()]} ${date.getUTCDate()} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }

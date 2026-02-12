@@ -8,3 +8,6 @@ node_modules/
 cache/
 playwright-failures/
 *.kml
+
+output/
+transformed-data/

@@ -1,4 +1,7 @@
-const { getSourceDiscoverVenues, getSourceAttributes } = require("scripts/sources");
+const {
+  getSourceDiscoverVenues,
+  getSourceAttributes,
+} = require("scripts/sources");
 
 const discoverVenues = getSourceDiscoverVenues("ticketsource.co.uk");
 const attributes = getSourceAttributes("ticketsource.co.uk");

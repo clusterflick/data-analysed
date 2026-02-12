@@ -1,8 +1,5 @@
 const { isInLondon } = require("scripts/common/geo-utils");
-const {
-  getAllCinemaNames,
-  getCinemaAttributes,
-} = require("scripts/cinemas");
+const { getAllCinemaNames, getCinemaAttributes } = require("scripts/cinemas");
 
 function getAttributesFor(venue) {
   return getCinemaAttributes(venue);
