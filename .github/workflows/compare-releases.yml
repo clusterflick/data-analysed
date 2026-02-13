@@ -56,4 +56,4 @@ jobs:
         with:
           name: comparison-report
           path: output/
-          retention-days: 90
+          retention-days: 14
