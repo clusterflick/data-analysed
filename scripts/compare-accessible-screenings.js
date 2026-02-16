@@ -35,31 +35,36 @@ function concernLabel(level) {
 // ---------------------------------------------------------------------------
 
 const UKCA_TAG_MAP = {
-  "Showtime.Accessibility.AudioDescription": "audioDescription",
-  "Showtime.Accessibility.AutismFriendly": "relaxed",
-  "Showtime.Accessibility.DementiaFriendly": "relaxed",
-  "Showtime.Accessibility.Subtitled": "subtitled",
-  "Showtime.Accessibility.ClosedCaption": "hardOfHearing",
-  "Showtime.Accessibility.OpenCaption": "subtitled",
+  "Showtime.Accessibility.AudioDescription": ["audioDescription"],
+  "Showtime.Accessibility.AutismFriendly": ["relaxed"],
+  "Showtime.Accessibility.DementiaFriendly": ["relaxed"],
+  "Showtime.Accessibility.Subtitled": ["subtitled"],
+  "Showtime.Accessibility.ClosedCaption": ["hardOfHearing"],
+  "Showtime.Accessibility.OpenCaption": ["subtitled", "hardOfHearing"],
 };
 
 function ukcaTagsToAccessibility(tags) {
   const result = {};
+  const sourceTag = {};
   const unknownTags = [];
 
   for (const tag of tags) {
     if (!tag.startsWith("Showtime.Accessibility.")) continue;
     if (tag === "Showtime.Accessibility.Accessible") continue;
 
-    const field = UKCA_TAG_MAP[tag];
-    if (field) {
-      result[field] = true;
+    const fields = UKCA_TAG_MAP[tag];
+    if (fields) {
+      const shortTag = tag.replace("Showtime.Accessibility.", "");
+      for (const field of fields) {
+        result[field] = true;
+        sourceTag[field] = shortTag;
+      }
     } else {
       unknownTags.push(tag);
     }
   }
 
-  return { accessibility: result, unknownTags };
+  return { accessibility: result, sourceTag, unknownTags };
 }
 
 function hasAccessibilityTags(tags) {
@@ -479,8 +484,11 @@ function matchPerformances(ukcaFlat, ourFlat) {
 // ---------------------------------------------------------------------------
 
 function compareAccessibility(ukcaTags, ourAccessibility) {
-  const { accessibility: ukcaAccess, unknownTags } =
-    ukcaTagsToAccessibility(ukcaTags);
+  const {
+    accessibility: ukcaAccess,
+    sourceTag,
+    unknownTags,
+  } = ukcaTagsToAccessibility(ukcaTags);
 
   const mismatches = [];
   const allFields = [
@@ -496,7 +504,11 @@ function compareAccessibility(ukcaTags, ourAccessibility) {
     const ourHas = ourAccessibility[field] === true;
 
     if (ukcaHas && !ourHas) {
-      mismatches.push({ field, type: "missing-in-ours" });
+      mismatches.push({
+        field,
+        type: "missing-in-ours",
+        ukcaTag: sourceTag[field],
+      });
     } else if (!ukcaHas && ourHas) {
       mismatches.push({ field, type: "extra-in-ours" });
     }
@@ -772,7 +784,7 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           for (const mis of mm.mismatches) {
             if (mis.type === "missing-in-ours") {
               lines.push(
-                `        ${c.red}Missing:${c.reset} ${mis.field} (UKCA has it, we don't)`,
+                `        ${c.red}Missing:${c.reset} ${mis.ukcaTag && mis.ukcaTag !== mis.field ? `${mis.ukcaTag} \u2192 ` : ""}${mis.field} (UKCA has it, we don't)`,
               );
             } else {
               lines.push(
