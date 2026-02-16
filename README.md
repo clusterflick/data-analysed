@@ -85,6 +85,65 @@ npm run find:pearl-and-dean          # Find cinemas from Pearl & Dean
 npm run generate:map             # Generate a KML map file of all cinemas
 ```
 
+### Release Comparison
+
+```bash
+npm run compare:releases -- <current-dir> <previous-dir> <current-tag> <previous-tag>
+```
+
+Compares two transformed data releases to identify changes between pipeline runs.
+
+### Accessible Screenings Comparison
+
+Compares our transformed accessibility data against
+[Accessible Screenings UK](https://accessiblescreeningsuk.co.uk/) (UKCA) to
+identify gaps in our accessibility tagging.
+
+```bash
+npm run download:accessible-screenings   # Fetch UKCA data (extracts JWT tokens from their website)
+npm run compare:accessible-screenings -- <ukca-data-path> <transformed-data-dir>
+```
+
+The comparison:
+
+1. **Matches venues** by coordinates (within 250m) then name similarity, using a
+   greedy best-match algorithm.
+2. **Matches performances** by booking URL first, then falls back to title
+   similarity (Jaccard ≥ 0.3) + time (within 15 minutes).
+3. **Compares accessibility tags** on matched performances, mapping UKCA tags
+   (`AudioDescription`, `AutismFriendly`, `DementiaFriendly`, `Subtitled`,
+   `ClosedCaption`, `OpenCaption`) to our fields (`audioDescription`, `relaxed`,
+   `subtitled`, `hardOfHearing`, `babyFriendly`).
+4. **Reports** mismatches, UKCA-only performances with accessibility tags, and
+   venues with no gaps. Outputs a JSON log to `output/`.
+
+#### UKCA data quality carve-outs
+
+UKCA's data has some known inaccuracies that would otherwise produce false
+positives. The comparison rolls these up as informational notes rather than
+real mismatches:
+
+- **Cineworld screen-level audio description**: UKCA propagates
+  `AUDIO_DESCRIPTION` from screen capabilities to all showtimes on that screen,
+  even when AD isn't active for a specific showing. Performances where the only
+  mismatch is missing `audioDescription` and the screen is listed as AD-capable
+  in UKCA's own theater data are treated as info.
+- **Vue 10am baby-friendly vs autism-friendly**: Vue's 10am "Mini Mornings"
+  screenings are baby-friendly. UKCA categorises these as `AutismFriendly`
+  (mapping to `relaxed`). The comparison detects Vue 10am showings where the
+  only relevant mismatch is `AutismFriendly → relaxed` and rolls them up as
+  info.
+- **Extra tags we have that UKCA lacks**: Where our data has accessibility flags
+  that UKCA doesn't track (e.g. `babyFriendly`), these are separated from real
+  mismatches since they represent us being more detailed, not a gap.
+
+#### Automation
+
+The comparison runs automatically after each transform via
+`.github/workflows/compare-accessible-screenings.yml`, triggered by
+`repository_dispatch` (`compare_releases`) or manually via `workflow_dispatch`.
+The JSON report is uploaded as a GitHub Actions artifact (retained 14 days).
+
 ## Data Files
 
 The `data/` directory contains reference data files:
