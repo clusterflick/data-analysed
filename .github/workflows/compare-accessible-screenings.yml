@@ -1,0 +1,39 @@
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [compare_releases]
+
+name: Compare Accessible Screenings
+
+jobs:
+  compare:
+    name: Compare Accessible Screenings
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - uses: clusterflick/release-downloader@v1
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-transformed"
+          latest: true
+          fileName: "*"
+          out-file-path: "transformed-data"
+
+      - name: Download UKCA data
+        run: npm run download:accessible-screenings
+
+      - name: Compare accessible screenings
+        run: npm run compare:accessible-screenings -- accessible-screenings-data/ukca-data.json transformed-data
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accessible-screenings-report
+          path: output/
+          retention-days: 14
