@@ -755,6 +755,11 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.extraOnlyCount} where we have extra tags UKCA lacks`,
         );
       }
+      if (analysis.vueBabyAutismCount) {
+        infoParts.push(
+          `${analysis.vueBabyAutismCount} Vue 10am babyFriendly vs AutismFriendly (UKCA wrong)`,
+        );
+      }
       if (infoParts.length > 0) {
         lines.push(
           `    ${c.cyan}Info:${c.reset} ${c.dim}${infoParts.join("; ")}${c.reset}`,
@@ -845,6 +850,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.screenLevelAdCount} screen-level AD`);
       if (analysis.extraOnlyCount)
         notes.push(`${analysis.extraOnlyCount} extra-in-ours`);
+      if (analysis.vueBabyAutismCount)
+        notes.push(`${analysis.vueBabyAutismCount} Vue baby/autism`);
       const noteStr = notes.length
         ? ` ${c.dim}(${notes.join(", ")} ignored)${c.reset}`
         : "";
@@ -1052,6 +1059,47 @@ function main() {
     if (extraOnly.length > 0) {
       analysis.extraOnlyCount = extraOnly.length;
       analysis.accessibilityMismatch = actionable;
+    }
+
+    // Vue 10am screenings: UKCA tags as AutismFriendly, we tag as babyFriendly.
+    // These are the same morning screenings — Vue calls them "Mini Mornings" (baby
+    // friendly), UKCA categorises them as autism friendly. Roll up as info.
+    if (m.venueId.startsWith("myvue.com")) {
+      const vueBabyAutism = [];
+      const vueOther = [];
+
+      for (const mm of analysis.accessibilityMismatch) {
+        const hour = new Date(mm.ours.time).getUTCHours();
+        const hasMissingRelaxed = mm.mismatches.some(
+          (mis) =>
+            mis.field === "relaxed" &&
+            mis.type === "missing-in-ours" &&
+            mis.ukcaTag === "AutismFriendly",
+        );
+
+        if (hour === 10 && hasMissingRelaxed) {
+          // Remove the relaxed mismatch; keep any other mismatches
+          const remaining = mm.mismatches.filter(
+            (mis) =>
+              !(
+                mis.field === "relaxed" &&
+                mis.type === "missing-in-ours" &&
+                mis.ukcaTag === "AutismFriendly"
+              ),
+          );
+          vueBabyAutism.push(mm);
+          if (remaining.length > 0) {
+            vueOther.push({ ...mm, mismatches: remaining });
+          }
+        } else {
+          vueOther.push(mm);
+        }
+      }
+
+      if (vueBabyAutism.length > 0) {
+        analysis.vueBabyAutismCount = vueBabyAutism.length;
+        analysis.accessibilityMismatch = vueOther;
+      }
     }
 
     venueAnalyses[m.venueId] = analysis;
