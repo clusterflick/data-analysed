@@ -387,6 +387,24 @@ function normalizeUrl(url) {
   }
 }
 
+// Extract a performance ID from a booking URL using common query parameters.
+// Returns null if no recognisable ID parameter is found.
+const PERF_ID_PARAMS = ["id", "perfcode", "showtimeid", "eid"];
+
+function extractPerfId(url) {
+  try {
+    const u = new URL(url);
+    for (const key of PERF_ID_PARAMS) {
+      for (const [k, v] of u.searchParams) {
+        if (k.toLowerCase() === key && v) return v;
+      }
+    }
+  } catch {
+    // not a valid URL
+  }
+  return null;
+}
+
 function matchPerformances(ukcaFlat, ourFlat) {
   const matchedPerfs = [];
   const ukcaOnly = [];
@@ -398,6 +416,11 @@ function matchPerformances(ukcaFlat, ourFlat) {
   // Build normalized URL lookup for our performances
   const ourNormUrls = ourFlat.map((o) =>
     o.bookingUrl ? normalizeUrl(o.bookingUrl) : null,
+  );
+
+  // Build performance ID lookup for our performances
+  const ourPerfIds = ourFlat.map((o) =>
+    o.bookingUrl ? extractPerfId(o.bookingUrl) : null,
   );
 
   // Primary: match by booking URL (normalized)
@@ -424,12 +447,42 @@ function matchPerformances(ukcaFlat, ourFlat) {
     }
   }
 
-  // Fallback: match by title + time within tolerance
-  // Title similarity is required (>= 0.3) — time alone cannot identify a
-  // performance since multi-screen cinemas have different films at the same time.
+  // Secondary: match by performance ID extracted from URL
+  // Handles cases where URLs differ in structure but share the same ID param
   for (let ui = 0; ui < ukcaFlat.length; ui++) {
     if (usedUkcaIdx.has(ui)) continue;
     const ukca = ukcaFlat[ui];
+
+    const ukcaPerfIds = ukca.bookingUrls.map(extractPerfId).filter(Boolean);
+    if (ukcaPerfIds.length === 0) continue;
+
+    for (let oi = 0; oi < ourFlat.length; oi++) {
+      if (usedOurIdx.has(oi)) continue;
+      if (!ourPerfIds[oi]) continue;
+
+      if (ukcaPerfIds.includes(ourPerfIds[oi])) {
+        usedUkcaIdx.add(ui);
+        usedOurIdx.add(oi);
+        matchedPerfs.push({
+          ukca,
+          ours: ourFlat[oi],
+          matchMethod: "perfId",
+        });
+        break;
+      }
+    }
+  }
+
+  // Tertiary: match by title + time within tolerance
+  // Title similarity is required (>= 0.3) — time alone cannot identify a
+  // performance since multi-screen cinemas have different films at the same time.
+  // If both URLs have a recognisable performance ID that doesn't match, skip —
+  // they are definitively different performances even if title and time align.
+  for (let ui = 0; ui < ukcaFlat.length; ui++) {
+    if (usedUkcaIdx.has(ui)) continue;
+    const ukca = ukcaFlat[ui];
+
+    const ukcaPerfIds = ukca.bookingUrls.map(extractPerfId).filter(Boolean);
 
     let bestOurIdx = -1;
     let bestTitleSim = 0;
@@ -437,6 +490,16 @@ function matchPerformances(ukcaFlat, ourFlat) {
 
     for (let oi = 0; oi < ourFlat.length; oi++) {
       if (usedOurIdx.has(oi)) continue;
+
+      // If both sides have a perf ID and they don't match, skip
+      if (
+        ukcaPerfIds.length > 0 &&
+        ourPerfIds[oi] &&
+        !ukcaPerfIds.includes(ourPerfIds[oi])
+      ) {
+        continue;
+      }
+
       const delta = Math.abs(ukca.startsAtMs - ourFlat[oi].time);
       if (delta > TIME_TOLERANCE_MS) continue;
 
