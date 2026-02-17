@@ -1040,30 +1040,11 @@ function main() {
       }
     }
 
-    // Separate out mismatches where we only have extra data that UKCA lacks.
-    // These aren't gaps in our data — we're more detailed than UKCA.
-    const extraOnly = [];
-    const actionable = [];
-
-    for (const mm of analysis.accessibilityMismatch) {
-      const hasMissing = mm.mismatches.some(
-        (mis) => mis.type === "missing-in-ours",
-      );
-      if (hasMissing) {
-        actionable.push(mm);
-      } else {
-        extraOnly.push(mm);
-      }
-    }
-
-    if (extraOnly.length > 0) {
-      analysis.extraOnlyCount = extraOnly.length;
-      analysis.accessibilityMismatch = actionable;
-    }
-
     // Vue 10am screenings: UKCA tags as AutismFriendly, we tag as babyFriendly.
     // These are the same morning screenings — Vue calls them "Mini Mornings" (baby
     // friendly), UKCA categorises them as autism friendly. Roll up as info.
+    // NOTE: this runs before the extra-only filter so that leftover babyFriendly-only
+    // entries (after stripping relaxed) are caught by the extra-only pass below.
     if (m.venueId.startsWith("myvue.com")) {
       const vueBabyAutism = [];
       const vueOther = [];
@@ -1100,6 +1081,30 @@ function main() {
         analysis.vueBabyAutismCount = vueBabyAutism.length;
         analysis.accessibilityMismatch = vueOther;
       }
+    }
+
+    // Separate out mismatches where we only have extra data that UKCA lacks.
+    // These aren't gaps in our data — we're more detailed than UKCA.
+    // Runs last so it catches leftovers from earlier carve-outs (e.g. Vue
+    // babyFriendly-only after stripping relaxed).
+    const extraOnly = [];
+    const actionable = [];
+
+    for (const mm of analysis.accessibilityMismatch) {
+      const hasMissing = mm.mismatches.some(
+        (mis) => mis.type === "missing-in-ours",
+      );
+      if (hasMissing) {
+        actionable.push(mm);
+      } else {
+        extraOnly.push(mm);
+      }
+    }
+
+    if (extraOnly.length > 0) {
+      analysis.extraOnlyCount =
+        (analysis.extraOnlyCount || 0) + extraOnly.length;
+      analysis.accessibilityMismatch = actionable;
     }
 
     venueAnalyses[m.venueId] = analysis;
