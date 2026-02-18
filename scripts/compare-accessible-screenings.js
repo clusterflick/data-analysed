@@ -749,6 +749,10 @@ async function verifyCineworldAdMismatches(mismatches, venueId) {
     }
   }
 
+  if (cwEvents.size === 0) {
+    return { apiBlocked: true, count: withAdMissing.length };
+  }
+
   // Check each mismatch against the fetched data
   let staleAd = 0;
   const verified = [];
@@ -977,6 +981,11 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.cineworldStaleCount} stale Cineworld listings removed`,
         );
       }
+      if (analysis.cineworldAdApiBlocked) {
+        infoParts.push(
+          `${c.yellow}${analysis.cineworldAdApiBlocked} Cineworld AD mismatches could not be verified (API blocked)${c.reset}`,
+        );
+      }
       if (analysis.cineworldAdTooMany) {
         infoParts.push(
           `${c.red}${analysis.cineworldAdTooMany} Cineworld AD mismatches exceed verification cap (${CW_AD_VERIFY_CAP}) — not verified${c.reset}`,
@@ -1076,6 +1085,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.vueBabyAutismCount} Vue baby/autism`);
       if (analysis.cineworldStaleAdCount)
         notes.push(`${analysis.cineworldStaleAdCount} stale CW AD`);
+      if (analysis.cineworldAdApiBlocked)
+        notes.push(`${analysis.cineworldAdApiBlocked} CW AD unverified`);
       if (analysis.cineworldStaleCount)
         notes.push(`${analysis.cineworldStaleCount} stale CW listings`);
       const noteStr = notes.length
@@ -1278,6 +1289,8 @@ async function main() {
       if (adResult) {
         if (adResult.tooMany) {
           analysis.cineworldAdTooMany = adResult.tooMany;
+        } else if (adResult.apiBlocked) {
+          analysis.cineworldAdApiBlocked = adResult.count;
         } else {
           if (adResult.staleAd > 0) {
             analysis.cineworldStaleAdCount =
