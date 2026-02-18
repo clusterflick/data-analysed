@@ -8,7 +8,7 @@ name: Compare Accessible Screenings
 jobs:
   compare:
     name: Compare Accessible Screenings
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       TZ: Europe/London
     steps:
