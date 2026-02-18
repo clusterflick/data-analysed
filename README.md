@@ -1,8 +1,8 @@
 # Cinema Analysis Scripts
 
-This repository contains scripts for analyzing and validating cinema data for the
-Clusterflick project. These scripts help discover new venues, validate cinema IDs,
-and check coordinate accuracy.
+This repository contains scripts for analyzing and validating cinema data for
+the Clusterflick project. These scripts help discover new venues, validate
+cinema IDs, and check coordinate accuracy.
 
 ## Setup
 
@@ -34,8 +34,8 @@ MAPS_API_KEY=your_google_maps_api_key
 
 ### ID Validation Scripts
 
-These scripts check that cinema IDs in the database match the IDs used by
-cinema chain websites.
+These scripts check that cinema IDs in the database match the IDs used by cinema
+chain websites.
 
 ```bash
 npm run check:cineworld-ids      # Validate Cineworld cinema IDs
@@ -91,7 +91,8 @@ npm run generate:map             # Generate a KML map file of all cinemas
 npm run compare:releases -- <current-dir> <previous-dir> <current-tag> <previous-tag>
 ```
 
-Compares two transformed data releases to identify changes between pipeline runs.
+Compares two transformed data releases to identify changes between pipeline
+runs.
 
 ### Accessible Screenings Comparison
 
@@ -108,8 +109,11 @@ The comparison:
 
 1. **Matches venues** by coordinates (within 250m) then name similarity, using a
    greedy best-match algorithm.
-2. **Matches performances** by booking URL first, then falls back to title
-   similarity (Jaccard ≥ 0.3) + time (within 15 minutes).
+2. **Matches performances** in three tiers: normalised booking URL, then
+   performance ID extracted from URL query parameters (e.g. `id`, `perfcode`,
+   `showtimeId`), then falls back to title similarity (Jaccard ≥ 0.3) + time
+   (within 15 minutes). The time fallback is guarded so that two performances
+   with different explicit IDs are never cross-matched.
 3. **Compares accessibility tags** on matched performances, mapping UKCA tags
    (`AudioDescription`, `AutismFriendly`, `DementiaFriendly`, `Subtitled`,
    `ClosedCaption`, `OpenCaption`) to our fields (`audioDescription`, `relaxed`,
@@ -120,14 +124,27 @@ The comparison:
 #### UKCA data quality carve-outs
 
 UKCA's data has some known inaccuracies that would otherwise produce false
-positives. The comparison rolls these up as informational notes rather than
-real mismatches:
+positives. The comparison rolls these up as informational notes rather than real
+mismatches:
 
 - **Cineworld screen-level audio description**: UKCA propagates
   `AUDIO_DESCRIPTION` from screen capabilities to all showtimes on that screen,
   even when AD isn't active for a specific showing. Performances where the only
   mismatch is missing `audioDescription` and the screen is listed as AD-capable
   in UKCA's own theater data are treated as info.
+- **Cineworld stale audio description**: UKCA sometimes retains
+  `AudioDescription` tags on Cineworld performances after Cineworld has removed
+  them (e.g. when a film moves to a different screen). The comparison verifies
+  AD-only mismatches against Cineworld's showtimes API — if Cineworld confirms
+  the performance does not have `audio-described`, the mismatch is treated as
+  stale UKCA data. Verification is capped at 25 per venue to avoid excessive API
+  calls; if exceeded, mismatches are kept unverified with a warning. If the API
+  is unreachable (e.g. Cloudflare blocking the runner IP), the mismatches are
+  also kept with a warning.
+- **Cineworld stale listings**: UKCA-only accessible performances for Cineworld
+  are verified against Cineworld's order API to check if the session still
+  exists. Stale listings (removed from Cineworld but still in UKCA) are filtered
+  out and reported as info.
 - **Vue 10am baby-friendly vs autism-friendly**: Vue's 10am "Mini Mornings"
   screenings are baby-friendly. UKCA categorises these as `AutismFriendly`
   (mapping to `relaxed`). The comparison detects Vue 10am showings where the
@@ -155,15 +172,17 @@ The `data/` directory contains reference data files:
 
 ## Dependencies
 
-This project uses the [`scripts`](https://github.com/clusterflick/scripts) package
-as a dependency. The scripts package provides:
+This project uses the [`scripts`](https://github.com/clusterflick/scripts)
+package as a dependency. The scripts package provides:
 
-- `scripts/common/utils` - Utility functions (readJSON, fetchText, fetchJson, etc.)
+- `scripts/common/utils` - Utility functions (readJSON, fetchText, fetchJson,
+  etc.)
 - `scripts/common/geo-utils` - Geographic utilities (isInLondon)
 - `scripts/common/cache` - Caching utilities (dailyCache)
 - `scripts/common/distance-in-km-between-coordinates` - Geo calculations
 - `scripts/common/source-utils` - Source matching utilities
-- `scripts/cinemas` - Cinema data access (getAllCinemaNames, getCinemaAttributes, etc.)
+- `scripts/cinemas` - Cinema data access (getAllCinemaNames,
+  getCinemaAttributes, etc.)
 - `scripts/sources` - Event source access (getSourceDiscoverVenues, etc.)
 
 ## License
