@@ -688,6 +688,104 @@ async function filterStaleCineworldListings(ukcaOnlyAccessible, venueId) {
   return { filtered: valid, staleCount: stale };
 }
 
+// Verify Cineworld AD mismatches against Cineworld's own showtimes API.
+// Groups mismatches by date and fetches each date's event listing once, then
+// checks whether the performance actually has the "audio-described" attribute.
+// Returns { verified: mismatches confirmed by CW API, staleAd: count removed }.
+// If there are more than `cap` mismatches, skips verification entirely and
+// returns null to signal that the caller should show an error instead.
+const CW_AD_VERIFY_CAP = 25;
+
+async function verifyCineworldAdMismatches(mismatches, venueId) {
+  if (!venueId.startsWith("cineworld.co.uk")) return null;
+
+  // Find mismatches that include "missing audioDescription"
+  const withAdMissing = mismatches.filter((mm) =>
+    mm.mismatches.some(
+      (mis) =>
+        mis.field === "audioDescription" && mis.type === "missing-in-ours",
+    ),
+  );
+  if (withAdMissing.length === 0) return null;
+  if (withAdMissing.length > CW_AD_VERIFY_CAP)
+    return { tooMany: withAdMissing.length };
+
+  // Extract site code from any booking URL
+  const sampleUrl =
+    withAdMissing[0].ours.bookingUrl || withAdMissing[0].ukca.bookingUrls[0];
+  let siteCode;
+  try {
+    const u = new URL(sampleUrl);
+    siteCode = u.searchParams.get("site") || u.searchParams.get("sitecode");
+  } catch {
+    return null;
+  }
+  if (!siteCode) return null;
+
+  // Group by business date so we fetch each date only once
+  const byDate = new Map();
+  for (const mm of withAdMissing) {
+    const time = mm.ours.time || mm.ukca.startsAtMs;
+    const d = new Date(time).toISOString().slice(0, 10);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(mm);
+  }
+
+  // Fetch event listings per date
+  const cwEvents = new Map(); // id -> attributeIds
+  for (const date of byDate.keys()) {
+    try {
+      const url = `https://www.cineworld.co.uk/uk/data-api-service/v1/quickbook/10108/film-events/in-cinema/${siteCode}/at-date/${date}?attr=&lang=en_GB`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const e of data?.body?.events || []) {
+        cwEvents.set(e.id, e.attributeIds || []);
+      }
+    } catch {
+      // On error, skip this date — mismatches will be kept as-is
+    }
+  }
+
+  // Check each mismatch against the fetched data
+  let staleAd = 0;
+  const verified = [];
+  const unaffected = mismatches.filter((mm) => !withAdMissing.includes(mm));
+
+  for (const mm of withAdMissing) {
+    const perfId = extractPerfId(mm.ours.bookingUrl || mm.ukca.bookingUrls[0]);
+    if (perfId && cwEvents.has(perfId)) {
+      const attrs = cwEvents.get(perfId);
+      if (attrs.includes("audio-described")) {
+        // Cineworld confirms AD — this is a genuine gap in our data
+        verified.push(mm);
+      } else {
+        // Cineworld doesn't have AD — UKCA is wrong; strip the AD mismatch
+        staleAd++;
+        const remaining = mm.mismatches.filter(
+          (mis) =>
+            !(
+              mis.field === "audioDescription" && mis.type === "missing-in-ours"
+            ),
+        );
+        if (remaining.length > 0) {
+          verified.push({ ...mm, mismatches: remaining });
+        }
+      }
+    } else {
+      // Couldn't verify — keep as mismatch
+      verified.push(mm);
+    }
+  }
+
+  return {
+    mismatches: [...unaffected, ...verified],
+    staleAd,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Report formatting
 // ---------------------------------------------------------------------------
@@ -869,9 +967,19 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.vueBabyAutismCount} Vue 10am babyFriendly vs AutismFriendly (UKCA wrong)`,
         );
       }
+      if (analysis.cineworldStaleAdCount) {
+        infoParts.push(
+          `${analysis.cineworldStaleAdCount} Cineworld AD mismatches verified as UKCA stale data`,
+        );
+      }
       if (analysis.cineworldStaleCount) {
         infoParts.push(
           `${analysis.cineworldStaleCount} stale Cineworld listings removed`,
+        );
+      }
+      if (analysis.cineworldAdTooMany) {
+        infoParts.push(
+          `${c.red}${analysis.cineworldAdTooMany} Cineworld AD mismatches exceed verification cap (${CW_AD_VERIFY_CAP}) — not verified${c.reset}`,
         );
       }
       if (infoParts.length > 0) {
@@ -966,6 +1074,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.extraOnlyCount} extra-in-ours`);
       if (analysis.vueBabyAutismCount)
         notes.push(`${analysis.vueBabyAutismCount} Vue baby/autism`);
+      if (analysis.cineworldStaleAdCount)
+        notes.push(`${analysis.cineworldStaleAdCount} stale CW AD`);
       if (analysis.cineworldStaleCount)
         notes.push(`${analysis.cineworldStaleCount} stale CW listings`);
       const noteStr = notes.length
@@ -1153,6 +1263,28 @@ async function main() {
       if (screenLevelMismatches.length > 0) {
         analysis.screenLevelAdCount = screenLevelMismatches.length;
         analysis.accessibilityMismatch = realMismatches;
+      }
+    }
+
+    // Cineworld AD verification: UKCA sometimes retains stale AudioDescription
+    // tags after Cineworld changes schedules. Verify remaining AD-only mismatches
+    // against Cineworld's own showtimes API. Capped at 25 per venue to avoid
+    // excessive API calls; if over the cap, skip verification and flag the issue.
+    if (m.venueId.startsWith("cineworld.co.uk")) {
+      const adResult = await verifyCineworldAdMismatches(
+        analysis.accessibilityMismatch,
+        m.venueId,
+      );
+      if (adResult) {
+        if (adResult.tooMany) {
+          analysis.cineworldAdTooMany = adResult.tooMany;
+        } else {
+          if (adResult.staleAd > 0) {
+            analysis.cineworldStaleAdCount =
+              (analysis.cineworldStaleAdCount || 0) + adResult.staleAd;
+            analysis.accessibilityMismatch = adResult.mismatches;
+          }
+        }
       }
     }
 
