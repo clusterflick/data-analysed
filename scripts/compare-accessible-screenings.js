@@ -643,6 +643,52 @@ function analyzeVenue(ukcaShowtimeData, ourShowings, now) {
 }
 
 // ---------------------------------------------------------------------------
+// Cineworld listing verification
+// ---------------------------------------------------------------------------
+
+// Check if a Cineworld performance still exists via their API.
+// Returns true if valid, false if the listing has been removed.
+async function verifyCineworldListing(url) {
+  try {
+    const u = new URL(url);
+    const site = u.searchParams.get("site") || u.searchParams.get("sitecode");
+    const sessionId = u.searchParams.get("id");
+    if (!site || !sessionId) return true; // can't verify, assume valid
+
+    const apiUrl = `https://experience.cineworld.co.uk/api/OrderMedia?theatreCode=${site}&sessionId=${sessionId}`;
+    const res = await fetch(apiUrl);
+    if (!res.ok) return false;
+
+    const data = await res.json();
+    // A valid listing returns session data; a removed one returns an error or empty
+    return !!(data && !data.error);
+  } catch {
+    return true; // on network error, assume valid
+  }
+}
+
+// Filter UKCA-only accessible performances for Cineworld venues, removing
+// listings that no longer exist on Cineworld's site (stale UKCA data).
+async function filterStaleCineworldListings(ukcaOnlyAccessible, venueId) {
+  if (!venueId.startsWith("cineworld.co.uk")) return ukcaOnlyAccessible;
+  if (ukcaOnlyAccessible.length === 0) return ukcaOnlyAccessible;
+
+  const results = await Promise.all(
+    ukcaOnlyAccessible.map(async (u) => {
+      const url = u.bookingUrls[0];
+      if (!url || !url.includes("cineworld.co.uk")) return { u, valid: true };
+      const valid = await verifyCineworldListing(url);
+      return { u, valid };
+    }),
+  );
+
+  const valid = results.filter((r) => r.valid).map((r) => r.u);
+  const stale = results.filter((r) => !r.valid).length;
+
+  return { filtered: valid, staleCount: stale };
+}
+
+// ---------------------------------------------------------------------------
 // Report formatting
 // ---------------------------------------------------------------------------
 
@@ -823,6 +869,11 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.vueBabyAutismCount} Vue 10am babyFriendly vs AutismFriendly (UKCA wrong)`,
         );
       }
+      if (analysis.cineworldStaleCount) {
+        infoParts.push(
+          `${analysis.cineworldStaleCount} stale Cineworld listings removed`,
+        );
+      }
       if (infoParts.length > 0) {
         lines.push(
           `    ${c.cyan}Info:${c.reset} ${c.dim}${infoParts.join("; ")}${c.reset}`,
@@ -915,6 +966,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.extraOnlyCount} extra-in-ours`);
       if (analysis.vueBabyAutismCount)
         notes.push(`${analysis.vueBabyAutismCount} Vue baby/autism`);
+      if (analysis.cineworldStaleCount)
+        notes.push(`${analysis.cineworldStaleCount} stale CW listings`);
       const noteStr = notes.length
         ? ` ${c.dim}(${notes.join(", ")} ignored)${c.reset}`
         : "";
@@ -1030,7 +1083,7 @@ function writeJsonLog(venueMatchResult, venueAnalyses, ukcaData) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
+async function main() {
   const [ukcaDataPath, transformedDir] = process.argv.slice(2);
 
   if (!ukcaDataPath || !transformedDir) {
@@ -1173,6 +1226,37 @@ function main() {
     venueAnalyses[m.venueId] = analysis;
   }
 
+  // Verify Cineworld UKCA-only accessible performances against their API.
+  // Stale listings (removed from Cineworld but still in UKCA data) are filtered out.
+  const cineworldVenues = venueMatchResult.matched.filter((m) =>
+    m.venueId.startsWith("cineworld.co.uk"),
+  );
+  if (cineworldVenues.length > 0) {
+    const totalToCheck = cineworldVenues.reduce(
+      (n, m) => n + (venueAnalyses[m.venueId]?.ukcaOnlyAccessible?.length || 0),
+      0,
+    );
+    if (totalToCheck > 0) {
+      console.log(
+        `Verifying ${totalToCheck} Cineworld UKCA-only listings against API...`,
+      );
+      for (const m of cineworldVenues) {
+        const analysis = venueAnalyses[m.venueId];
+        if (!analysis || analysis.ukcaOnlyAccessible.length === 0) continue;
+
+        const result = await filterStaleCineworldListings(
+          analysis.ukcaOnlyAccessible,
+          m.venueId,
+        );
+        if (result.staleCount > 0) {
+          analysis.cineworldStaleCount =
+            (analysis.cineworldStaleCount || 0) + result.staleCount;
+          analysis.ukcaOnlyAccessible = result.filtered;
+        }
+      }
+    }
+  }
+
   // Step 3: Report
   console.log("");
   const report = formatReport(venueMatchResult, venueAnalyses, ukcaData);
@@ -1195,4 +1279,7 @@ function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
