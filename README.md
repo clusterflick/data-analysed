@@ -161,6 +161,44 @@ The comparison runs automatically after each transform via
 `repository_dispatch` (`compare_releases`) or manually via `workflow_dispatch`.
 The JSON report is uploaded as a GitHub Actions artifact (retained 14 days).
 
+### CinemaGuide Screenings Comparison
+
+Compares our transformed screening data against
+[CinemaGuide](https://cinemaguide.co.uk/) to identify differences in coverage
+and screentimes.
+
+```bash
+npm run download:cinemaguide-screenings
+npm run compare:cinemaguide-screenings -- cinemaguide-data/cinemaguide-data.json transformed-data/current/
+```
+
+The download fetches all London venues from the CinemaGuide API and saves the
+result to `cinemaguide-data/cinemaguide-data.json`.
+
+The comparison:
+
+1. **Matches venues** using URL overlap as the primary signal, falling back to
+   name similarity (threshold: 0.8) for venues without bookable links. For
+   chains where URL formats differ between CinemaGuide and our data, a
+   venue-level key is extracted from the URL instead of comparing full URLs:
+   - **Picturehouse**: site code from `/movie-details/{code}/` or
+     `/showtimes/{code}-`
+   - **Vue**: venue ID from `/book-tickets/summary/{id}/` (CinemaGuide's URLs
+     also have a spurious double-slash which is normalised out)
+   - One hard-coded alias handles "Electric Cinema Notting Hill" →
+     `electriccinema.co.uk-portobello`, where CinemaGuide uses the neighbourhood
+     name and we use the street name.
+2. **Matches screenings** in three tiers: normalised booking URL, then
+   performance ID extracted from URL query parameters, then title similarity
+   (Jaccard ≥ 0.3) + time within 15 minutes.
+3. **Reports** per-venue differences: screenings in CinemaGuide only (may
+   indicate data we're missing) and screenings in our data only (may indicate
+   extraneous data or events CinemaGuide doesn't cover).
+
+Each matched venue in the output shows the match method (`url overlap: X%`,
+`name-only`, or `hard-coded alias`) so low-confidence matches can be spotted
+at a glance.
+
 ## Data Files
 
 The `data/` directory contains reference data files:

@@ -1,0 +1,35 @@
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [compare_releases]
+
+name: Compare CinemaGuide Screenings
+
+jobs:
+  compare:
+    name: Compare CinemaGuide Screenings
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set Playwright path
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install
+      - run: npx playwright install --with-deps
+      - uses: clusterflick/release-downloader@v2
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-transformed"
+          latest: true
+          fileName: "*"
+          out-file-path: "transformed-data"
+
+      - name: Download CinemaGuide data
+        run: npm run download:cinemaguide-screenings
+
+      - name: Compare CinemaGuide screenings
+        run: npm run compare:cinemaguide-screenings -- cinemaguide-data/cinemaguide-data.json transformed-data

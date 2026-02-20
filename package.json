@@ -32,7 +32,9 @@
     "track:movie": "node scripts/track-movie-over-time.js",
     "compare:releases": "node scripts/compare-releases.js",
     "download:accessible-screenings": "node scripts/download-accessible-screenings.js",
-    "compare:accessible-screenings": "node scripts/compare-accessible-screenings.js"
+    "compare:accessible-screenings": "node scripts/compare-accessible-screenings.js",
+    "download:cinemaguide-screenings": "node scripts/download-cinemaguide-screenings.js",
+    "compare:cinemaguide-screenings": "node scripts/compare-cinemaguide-screenings.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",
