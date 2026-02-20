@@ -1161,6 +1161,13 @@ async function main() {
   console.log("");
   const report = formatReport(venueMatchResult, venueAnalyses, cgData);
   console.log(report);
+
+  const hasMismatches = Object.values(venueAnalyses).some(
+    (a) => a.cgOnlyCount > 0,
+  );
+  if (hasMismatches) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
