@@ -237,6 +237,23 @@ otherwise produce false positives:
   - **Vue**: verified via
     `myvue.com/api/microservice/showings/cinemas/{id}/showings/{showingId}`
     using Playwright (to avoid 401s from direct fetch calls)
+  - **Everyman**: verified via
+    `purchase.everymancinema.com/api/launch/ticketing/{uuid}` using Playwright
+    (session cookies required; 200 = valid, 500 = stale). CG occasionally
+    appends `&x-wwm-soldout=1` to the UUID with no leading `?`; this is stripped
+    before matching and verification.
+  - **Picturehouses**: CG links are film-level
+    (`/movie-details/{cinemaId}/{filmCode}/`), so verification POSTs to
+    `picturehouses.com/api/scheduled-movies-ajax` with `cinema_id` to retrieve
+    all scheduled films at the venue, then checks whether the film is still
+    listed and whether any of its showtimes match the CG entry's time (within 5
+    minutes, parsed as Europe/London local time).
+  - **Curzon**: verified via
+    `vwc.curzon.com/WSVistaWebClient/ocapi/v1/showtimes/{id}` using Playwright
+    (404 = stale).
+  - **Odeon**: verified via
+    `vwc.odeon.co.uk/WSVistaWebClient/ocapi/v1/showtimes/{id}` using Playwright
+    (404 = stale).
 - **Barbican BST time offset**: Barbican's website has incorrect `datetime`
   attributes during British Summer Time — they write the local time as if it
   were UTC (e.g. `18:30:00Z` for an event that is actually 18:30 BST = 17:30

@@ -5,11 +5,21 @@ const {
   verifyCineworldListing,
   verifyNickelListing,
   verifyVueListing,
+  verifyCurzonListing,
+  verifyOdeonListing,
+  verifyEverymanListing,
+  verifyPicturehousesListing,
+  verifyPrinceCharlesListing,
 } = require("./verify-listings");
 
 const CW_VERIFY_CAP = 25;
 const NICKEL_VERIFY_CAP = 25;
 const VUE_VERIFY_CAP = 25;
+const CURZON_VERIFY_CAP = 25;
+const ODEON_VERIFY_CAP = 25;
+const EVERYMAN_VERIFY_CAP = 25;
+const PICTUREHOUSES_VERIFY_CAP = 25;
+const PCC_VERIFY_CAP = 25;
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -162,7 +172,11 @@ function isDuringBST(ms) {
 function normalizeUrl(url) {
   try {
     // Normalise double slashes in path (CG sometimes has e.g. //whats-on/...)
-    const cleaned = url.replace(/([^:])\/\/+/g, "$1/");
+    let cleaned = url.replace(/([^:])\/\/+/g, "$1/");
+    // Strip malformed path-level query params: CG Everyman URLs sometimes
+    // append &key=value directly to the path segment with no leading '?'
+    // e.g. /launch/ticketing/{uuid}&x-wwm-soldout=1
+    cleaned = cleaned.replace(/^([^?]*)&[^?]*/, "$1");
     const u = new URL(cleaned);
     const params = [...u.searchParams.entries()].sort((a, b) =>
       a[0].localeCompare(b[0]),
@@ -780,7 +794,7 @@ async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
     } else {
       const results = await Promise.all(
         cgOnlyGenuine.map(async (s) => {
-          const valid = s.link ? await verifyFn(s.link) : true;
+          const valid = s.link ? await verifyFn(s.link, s) : true;
           return { s, valid };
         }),
       );
@@ -809,6 +823,45 @@ async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
       verifyVueListing,
       VUE_VERIFY_CAP,
       "Stale Vue listings",
+    );
+  } else if (
+    venueId.startsWith("everymancinema.com") &&
+    cgOnlyGenuine.length > 0
+  ) {
+    await verifyListings(
+      verifyEverymanListing,
+      EVERYMAN_VERIFY_CAP,
+      "Stale Everyman listings",
+    );
+  } else if (
+    venueId.startsWith("picturehouses.com") &&
+    cgOnlyGenuine.length > 0
+  ) {
+    await verifyListings(
+      verifyPicturehousesListing,
+      PICTUREHOUSES_VERIFY_CAP,
+      "Stale Picturehouses listings",
+    );
+  } else if (
+    venueId.startsWith("princecharlescinema.com") &&
+    cgOnlyGenuine.length > 0
+  ) {
+    await verifyListings(
+      verifyPrinceCharlesListing,
+      PCC_VERIFY_CAP,
+      "Stale Prince Charles Cinema listings",
+    );
+  } else if (venueId.startsWith("curzon.com") && cgOnlyGenuine.length > 0) {
+    await verifyListings(
+      verifyCurzonListing,
+      CURZON_VERIFY_CAP,
+      "Stale Curzon listings",
+    );
+  } else if (venueId.startsWith("odeon.co.uk") && cgOnlyGenuine.length > 0) {
+    await verifyListings(
+      verifyOdeonListing,
+      ODEON_VERIFY_CAP,
+      "Stale Odeon listings",
     );
   }
 
