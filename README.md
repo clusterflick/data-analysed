@@ -188,16 +188,63 @@ The comparison:
    - One hard-coded alias handles "Electric Cinema Notting Hill" →
      `electriccinema.co.uk-portobello`, where CinemaGuide uses the neighbourhood
      name and we use the street name.
-2. **Matches screenings** in three tiers: normalised booking URL, then
-   performance ID extracted from URL query parameters, then title similarity
-   (Jaccard ≥ 0.3) + time within 15 minutes.
-3. **Reports** per-venue differences: screenings in CinemaGuide only (may
-   indicate data we're missing) and screenings in our data only (may indicate
-   extraneous data or events CinemaGuide doesn't cover).
+2. **Matches screenings** in six tiers (each only runs on unmatched entries):
+   1. Normalised booking URL exact match
+   2. Performance ID extracted from URL query parameters (`id`, `perfcode`,
+      `showtimeId`, `eid`)
+   3. Normalised showing URL + time within 15 minutes (for venues like Barbican
+      where CinemaGuide links to the event page rather than a booking system)
+   4. Normalised showing URL + BST-adjusted time within 15 minutes — Barbican
+      only (see carve-outs below)
+   5. URL slug tokens vs title tokens, Jaccard ≥ 0.5 + time within 15 minutes
+      (for venues like BFI where CinemaGuide uses clean slug URLs whose words
+      match our title words reordered)
+   6. Title similarity, Jaccard ≥ 0.3 + time within 15 minutes (last resort;
+      prevented from cross-matching entries with conflicting explicit perf IDs)
+3. **Reports** per-venue differences: screenings in CinemaGuide only (possible
+   gaps in our data) and screenings in our data only (events CinemaGuide doesn't
+   cover, not treated as failures).
 
 Each matched venue in the output shows the match method (`url overlap: X%`,
-`name-only`, or `hard-coded alias`) so low-confidence matches can be spotted
-at a glance.
+`name-only`, or `hard-coded alias`) so low-confidence matches can be spotted at
+a glance.
+
+#### CinemaGuide data quality carve-outs
+
+CinemaGuide's data has some known inaccuracies and structural quirks that would
+otherwise produce false positives:
+
+- **Known mismatches — sports and live events**: We deliberately exclude sports
+  screenings (e.g. football, rugby, Grand Prix) and FANPARK events. When
+  CinemaGuide lists these, they appear as "Expected gaps" in the report rather
+  than real failures. Patterns matched: cup/league screenings, Union Jack
+  Classic, Super Bowl, Six Nations, AFCON, Grand Prix, FANPARK.
+- **Garden Cinema parser artifacts**: CinemaGuide's parser sometimes fails to
+  read the date for Garden Cinema screenings and defaults to January 1st while
+  keeping the time. Any CG-only Garden Cinema entry dated January 1st is treated
+  as a parser artifact and folded into "Expected gaps".
+- **CinemaGuide duplicate entries**: CinemaGuide sometimes lists the same
+  TicketSource event under multiple venue slugs — once under the programme title
+  and once under the individual film title. Entries with identical `link` +
+  `time` per venue are deduplicated before matching.
+- **Stale listing verification**: For certain venues, CG-only screenings are
+  verified against the venue's own API to check whether they've been removed.
+  Stale listings (removed from the venue but still in CG) are reported as
+  informational rather than failures. Verification is capped at 25 per venue; if
+  exceeded, entries are kept unverified with a warning.
+  - **Cineworld**: verified via `experience.cineworld.co.uk/api/OrderMedia`
+  - **The Nickel**: verified via `thenickel.co.uk/api/screenings/{id}`
+  - **Vue**: verified via
+    `myvue.com/api/microservice/showings/cinemas/{id}/showings/{showingId}`
+    using Playwright (to avoid 401s from direct fetch calls)
+- **Barbican BST time offset**: Barbican's website has incorrect `datetime`
+  attributes during British Summer Time — they write the local time as if it
+  were UTC (e.g. `18:30:00Z` for an event that is actually 18:30 BST = 17:30
+  UTC). CinemaGuide trusts this attribute; our pipeline reads the display text
+  and stores the correct UTC time. For Barbican events during BST, CG times are
+  therefore 1 hour ahead of ours. The comparison accounts for this by adding a
+  dedicated matching tier that shifts CG's time back by 1 hour for BST-period
+  Barbican events before checking URL + time.
 
 ## Data Files
 

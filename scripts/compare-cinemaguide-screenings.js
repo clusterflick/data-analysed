@@ -1,7 +1,15 @@
 const fs = require("fs");
 const path = require("path");
 const { getAttributesFor } = require("./utils");
-const getPageWithPlaywright = require("./common/get-page-with-playwright");
+const {
+  verifyCineworldListing,
+  verifyNickelListing,
+  verifyVueListing,
+} = require("./verify-listings");
+
+const CW_VERIFY_CAP = 25;
+const NICKEL_VERIFY_CAP = 25;
+const VUE_VERIFY_CAP = 25;
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -24,6 +32,18 @@ const KNOWN_MISMATCH_PATTERNS = [
 
 function isKnownMismatch(title) {
   return KNOWN_MISMATCH_PATTERNS.some((re) => re.test(title));
+}
+
+// Venue-specific CG data quality artifacts — parser failures that produce
+// screenings we should ignore rather than treat as real gaps.
+function isCgDataArtifact(screening, venueId) {
+  // Garden Cinema: when CG's parser can't read the date it defaults to Jan 1st
+  // while keeping the time. These are never real screenings.
+  if (venueId === "thegardencinema.co.uk") {
+    const d = new Date(screening.timeMs);
+    if (d.getUTCMonth() === 0 && d.getUTCDate() === 1) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +130,29 @@ function nameSimilarity(a, b) {
   }
   const union = wordsA.size + wordsB.size - intersection;
   return union > 0 ? intersection / union : 0;
+}
+
+// ---------------------------------------------------------------------------
+// DST helpers
+// ---------------------------------------------------------------------------
+
+// Returns the last Sunday of a given month (0-indexed) as a UTC Date.
+function lastSundayOf(year, month) {
+  const d = new Date(Date.UTC(year, month + 1, 0)); // last day of month
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // rewind to Sunday
+  return d;
+}
+
+// Returns true if the timestamp falls within UK British Summer Time.
+// BST runs from the last Sunday of March at 01:00 UTC to the last Sunday of
+// October at 01:00 UTC.
+function isDuringBST(ms) {
+  const year = new Date(ms).getUTCFullYear();
+  const bstStart = lastSundayOf(year, 2); // March (0-indexed)
+  bstStart.setUTCHours(1);
+  const bstEnd = lastSundayOf(year, 9); // October
+  bstEnd.setUTCHours(1);
+  return ms >= bstStart.getTime() && ms < bstEnd.getTime();
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +479,7 @@ function flattenOurPerformances(showings) {
 // Screening matching
 // ---------------------------------------------------------------------------
 
-function matchScreenings(cgFlat, ourFlat) {
+function matchScreenings(cgFlat, ourFlat, venueId = "") {
   const matchedPerfs = [];
   const cgOnly = [];
   const ourOnly = [];
@@ -476,20 +519,36 @@ function matchScreenings(cgFlat, ourFlat) {
     (o) => new Set(normalizeName(o.showingTitle).split(" ").filter(Boolean)),
   );
 
-  // Primary: booking URL match
+  // Primary: booking URL + time match
+  // Time check prevents event-level URLs (e.g. TicketSource) from matching a
+  // CG performance to a different performance of the same event in our data.
   for (let ci = 0; ci < cgFlat.length; ci++) {
     const cg = cgFlat[ci];
     if (usedCgIdx.has(ci) || !cg.link) continue;
     const cgNorm = normalizeUrl(cg.link);
 
+    let bestOurIdx = -1;
+    let bestDelta = Infinity;
+
     for (let oi = 0; oi < ourFlat.length; oi++) {
       if (usedOurIdx.has(oi) || !ourNormUrls[oi]) continue;
-      if (cgNorm === ourNormUrls[oi]) {
-        usedCgIdx.add(ci);
-        usedOurIdx.add(oi);
-        matchedPerfs.push({ cg, ours: ourFlat[oi], matchMethod: "bookingUrl" });
-        break;
+      if (cgNorm !== ourNormUrls[oi]) continue;
+      const delta = Math.abs(cg.timeMs - ourFlat[oi].time);
+      if (delta > TIME_TOLERANCE_MS) continue;
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestOurIdx = oi;
       }
+    }
+
+    if (bestOurIdx >= 0) {
+      usedCgIdx.add(ci);
+      usedOurIdx.add(bestOurIdx);
+      matchedPerfs.push({
+        cg,
+        ours: ourFlat[bestOurIdx],
+        matchMethod: "bookingUrl",
+      });
     }
   }
 
@@ -546,7 +605,46 @@ function matchScreenings(cgFlat, ourFlat) {
     }
   }
 
-  // Quaternary: URL slug vs title tokens + time match
+  // Quaternary (Barbican only): showing URL + BST-adjusted time match
+  // CinemaGuide trusts Barbican's machine-readable datetime attribute, which
+  // is wrong during BST (Barbican writes local time as if it were UTC). Our
+  // pipeline reads the display text and stores the correct UTC time, so CG
+  // times are 1 hour ahead of ours for BST-period events. Shift CG's time
+  // back by 1 hour before comparing.
+  if (venueId === "barbican.org.uk") {
+    for (let ci = 0; ci < cgFlat.length; ci++) {
+      if (usedCgIdx.has(ci) || !cgFlat[ci].link) continue;
+      if (!isDuringBST(cgFlat[ci].timeMs)) continue;
+      const cgNorm = normalizeUrl(cgFlat[ci].link);
+      const cgAdjustedTimeMs = cgFlat[ci].timeMs - 3_600_000;
+
+      let bestOurIdx = -1;
+      let bestDelta = Infinity;
+
+      for (let oi = 0; oi < ourFlat.length; oi++) {
+        if (usedOurIdx.has(oi) || !ourShowingNormUrls[oi]) continue;
+        if (cgNorm !== ourShowingNormUrls[oi]) continue;
+        const delta = Math.abs(cgAdjustedTimeMs - ourFlat[oi].time);
+        if (delta > TIME_TOLERANCE_MS) continue;
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestOurIdx = oi;
+        }
+      }
+
+      if (bestOurIdx >= 0) {
+        usedCgIdx.add(ci);
+        usedOurIdx.add(bestOurIdx);
+        matchedPerfs.push({
+          cg: cgFlat[ci],
+          ours: ourFlat[bestOurIdx],
+          matchMethod: "showingUrlBstOffset",
+        });
+      }
+    }
+  }
+
+  // Quinary: URL slug vs title tokens + time match
   // For venues like BFI where CG uses clean slug URLs (no query params) and the
   // slug words are the same as our title words, just reordered.
   const SLUG_TITLE_THRESHOLD = 0.5;
@@ -646,108 +744,6 @@ function matchScreenings(cgFlat, ourFlat) {
 }
 
 // ---------------------------------------------------------------------------
-// Cineworld listing verification
-// ---------------------------------------------------------------------------
-
-// Check if a Cineworld performance still exists via their API.
-// Returns true if valid, false if the listing has been removed.
-async function verifyCineworldListing(url) {
-  try {
-    const u = new URL(url);
-    const site = u.searchParams.get("site") || u.searchParams.get("sitecode");
-    const sessionId = u.searchParams.get("id");
-    if (!site || !sessionId) return true; // can't verify, assume valid
-
-    const apiUrl = `https://experience.cineworld.co.uk/api/OrderMedia?theatreCode=${site}&sessionId=${sessionId}`;
-    const res = await fetch(apiUrl);
-    if (!res.ok) return false;
-
-    const data = await res.json();
-    return !!(data && !data.error);
-  } catch {
-    return true; // on network error, assume valid
-  }
-}
-
-const CW_VERIFY_CAP = 25;
-
-// ---------------------------------------------------------------------------
-// The Nickel listing verification
-// ---------------------------------------------------------------------------
-
-// Check if a Nickel screening still exists via their API.
-// Returns true if valid, false if the listing has been removed (404 / error body).
-async function verifyNickelListing(url) {
-  try {
-    const u = new URL(url);
-    const m = u.pathname.match(/\/screening\/(\d+)/);
-    if (!m) return true; // can't extract ID, assume valid
-    const id = m[1];
-
-    const res = await fetch(`https://thenickel.co.uk/api/screenings/${id}`);
-    if (res.status === 404) return false;
-    if (!res.ok) return true; // other errors: assume valid
-
-    const data = await res.json();
-    return !(data && data.error);
-  } catch {
-    return true; // on network error, assume valid
-  }
-}
-
-const NICKEL_VERIFY_CAP = 25;
-
-// ---------------------------------------------------------------------------
-// Vue cinema listing verification
-// ---------------------------------------------------------------------------
-
-// Check if a Vue showing still exists via their API.
-// Returns true if valid, false if the listing has been removed.
-// Logs a warning if the request fails for an unexpected reason (e.g. blocked by
-// Cloudflare) so those aren't silently counted as stale.
-async function verifyVueListing(url) {
-  try {
-    const cleaned = url.replace(/([^:])\/\/+/g, "$1/");
-    const u = new URL(cleaned);
-    const m = u.pathname.match(/\/book-tickets\/summary\/(\d+)\/[^/]+\/(\d+)/);
-    if (!m) return true; // can't extract IDs, assume valid
-    const [, cinemaId, showingId] = m;
-
-    const apiUrl = `https://www.myvue.com/api/microservice/showings/cinemas/${cinemaId}/showings/${showingId}`;
-    const result = await getPageWithPlaywright(
-      cleaned,
-      `vue-verify-${showingId}`,
-      async (page) => {
-        await page.waitForLoadState();
-        return page.evaluate(async (apiUrl) => {
-          const res = await fetch(apiUrl, {
-            headers: { Accept: "application/json" },
-          });
-          const data = await res.json().catch(() => null);
-          return { status: res.status, data };
-        }, apiUrl);
-      },
-    );
-
-    if (result.status === 400) {
-      const msg =
-        result.data?.innerErrorMessage || result.data?.errorMessage || "";
-      if (msg.toLowerCase().includes("is not found")) return false;
-      console.warn(`  [Vue] Unexpected 400 for ${url}: ${msg}`);
-    } else if (result.status !== 200) {
-      console.warn(`  [Vue] Unexpected ${result.status} for ${url}`);
-    }
-
-    return true;
-  } catch (err) {
-    console.warn(`  [Vue] Error verifying ${url}: ${err.message}`);
-    return true;
-  }
-}
-
-const VUE_VERIFY_CAP = 25;
-
-// ---------------------------------------------------------------------------
 // Per-venue analysis
 // ---------------------------------------------------------------------------
 
@@ -758,10 +754,18 @@ async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
     (p) => p.time >= nowMs,
   );
 
-  const { matchedPerfs, cgOnly, ourOnly } = matchScreenings(cgFlat, ourFlat);
+  const { matchedPerfs, cgOnly, ourOnly } = matchScreenings(
+    cgFlat,
+    ourFlat,
+    venueId,
+  );
 
-  let cgOnlyGenuine = cgOnly.filter((s) => !isKnownMismatch(s.filmTitle));
-  const cgOnlyKnown = cgOnly.filter((s) => isKnownMismatch(s.filmTitle));
+  let cgOnlyGenuine = cgOnly.filter(
+    (s) => !isKnownMismatch(s.filmTitle) && !isCgDataArtifact(s, venueId),
+  );
+  const cgOnlyKnown = cgOnly.filter(
+    (s) => isKnownMismatch(s.filmTitle) || isCgDataArtifact(s, venueId),
+  );
 
   // For certain venues, verify CG-only listings against the venue's own API to
   // filter out stale entries that CG still shows but the venue has removed.
@@ -1034,7 +1038,7 @@ function formatReport(venueMatchResult, venueAnalyses, cgData) {
       if (analysis.cgOnlyKnownCount > 0) {
         lines.push("");
         lines.push(
-          `    ${c.dim}Expected gaps — sports/live events we filter out (${analysis.cgOnlyKnownCount}):${c.reset}`,
+          `    ${c.dim}Expected gaps — known mismatches we can't match (${analysis.cgOnlyKnownCount}):${c.reset}`,
         );
         const knownByTitle = new Map();
         for (const s of analysis.cgOnlyKnown) {
