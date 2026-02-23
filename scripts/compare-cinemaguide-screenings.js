@@ -1064,22 +1064,39 @@ function formatReport(venueMatchResult, venueAnalyses, cgData) {
         lines.push(
           `    ${c.cyan}Ours only (${analysis.ourOnlyCount}) — in our data, not CinemaGuide:${c.reset}`,
         );
-        // Group by title and show count of performances per title
+
+        const cgOnlyTitles = new Set(
+          analysis.cgOnly.map((s) => normalizeName(s.filmTitle)),
+        );
+
         const ourOnlyByTitle = new Map();
         for (const p of analysis.ourOnly) {
-          ourOnlyByTitle.set(
-            p.showingTitle,
-            (ourOnlyByTitle.get(p.showingTitle) || 0) + 1,
-          );
+          if (!ourOnlyByTitle.has(p.showingTitle))
+            ourOnlyByTitle.set(p.showingTitle, []);
+          ourOnlyByTitle.get(p.showingTitle).push(p);
         }
         const ourOnlyTitles = [...ourOnlyByTitle.entries()].sort((a, b) =>
           a[0].localeCompare(b[0]),
         );
         const MAX_TITLES = 20;
-        for (const [title, count] of ourOnlyTitles.slice(0, MAX_TITLES)) {
-          const suffix =
-            count > 1 ? ` ${c.dim}(${count} performances)${c.reset}` : "";
-          lines.push(`      ${title}${suffix}`);
+        let titlesShown = 0;
+        for (const [title, perfs] of ourOnlyTitles) {
+          if (titlesShown >= MAX_TITLES) break;
+          titlesShown++;
+          const isMismatch = cgOnlyTitles.has(normalizeName(title));
+          if (isMismatch) {
+            for (const p of perfs) {
+              lines.push(`      ${p.showingTitle} @ ${formatTime(p.time)}`);
+              if (p.bookingUrl)
+                lines.push(`        ${c.dim}${p.bookingUrl}${c.reset}`);
+            }
+          } else {
+            const suffix =
+              perfs.length > 1
+                ? ` ${c.dim}(${perfs.length} performances)${c.reset}`
+                : "";
+            lines.push(`      ${title}${suffix}`);
+          }
         }
         if (ourOnlyTitles.length > MAX_TITLES) {
           lines.push(
