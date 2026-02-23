@@ -317,6 +317,28 @@ async function verifyForestCinemaListing(url, screening) {
 }
 
 // ---------------------------------------------------------------------------
+// The Castle Cinema listing verification
+// ---------------------------------------------------------------------------
+
+// Check if a Castle Cinema booking is still valid by fetching the page and
+// looking for `.OLCT_errorBox` indicating the performance has been removed.
+async function verifyCastleCinemaListing(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return true;
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const errorText = $(".OLCT_errorBox").text().toLowerCase();
+    if (errorText.includes("performance has expired")) {
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 module.exports = {
   verifyCineworldListing,
@@ -328,4 +350,5 @@ module.exports = {
   verifyPicturehousesListing,
   verifyPrinceCharlesListing,
   verifyForestCinemaListing,
+  verifyCastleCinemaListing,
 };

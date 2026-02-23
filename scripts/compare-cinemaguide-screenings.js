@@ -11,6 +11,7 @@ const {
   verifyPicturehousesListing,
   verifyPrinceCharlesListing,
   verifyForestCinemaListing,
+  verifyCastleCinemaListing,
 } = require("./verify-listings");
 
 const CW_VERIFY_CAP = 25;
@@ -22,6 +23,7 @@ const EVERYMAN_VERIFY_CAP = 25;
 const PICTUREHOUSES_VERIFY_CAP = 25;
 const PCC_VERIFY_CAP = 25;
 const FOREST_VERIFY_CAP = 25;
+const CASTLE_VERIFY_CAP = 25;
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -867,6 +869,15 @@ async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
       verifyForestCinemaListing,
       FOREST_VERIFY_CAP,
       "Stale Forest Cinema listings",
+    );
+  } else if (
+    venueId.startsWith("thecastlecinema.com") &&
+    cgOnlyGenuine.length > 0
+  ) {
+    await verifyListings(
+      verifyCastleCinemaListing,
+      CASTLE_VERIFY_CAP,
+      "Stale Castle Cinema listings",
     );
   } else if (venueId.startsWith("odeon.co.uk") && cgOnlyGenuine.length > 0) {
     await verifyListings(
