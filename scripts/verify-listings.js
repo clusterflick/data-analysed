@@ -111,16 +111,19 @@ async function verifyVistaListing(pageUrl, apiUrl, label) {
     async (page) => {
       await page.waitForLoadState();
       return page.evaluate(async (apiUrl) => {
-        const res = await fetch(apiUrl, {
-          headers: { Accept: "application/json" },
-        });
-        return { status: res.status };
+        const authToken = window.initialData?.api?.authToken || null;
+        const headers = { Accept: "application/json" };
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        const res = await fetch(apiUrl, { headers });
+        return { status: res.status, hasAuth: !!authToken };
       }, apiUrl);
     },
   );
   if (result.status === 404) return false;
   if (result.status !== 200) {
-    console.warn(`  [${label}] Unexpected ${result.status} for ${pageUrl}`);
+    console.warn(
+      `  [${label}] Unexpected ${result.status} for ${pageUrl}${result.hasAuth ? "" : " (no auth token)"}`,
+    );
   }
   return true;
 }
