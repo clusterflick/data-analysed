@@ -10,6 +10,7 @@ const {
   verifyEverymanListing,
   verifyPicturehousesListing,
   verifyPrinceCharlesListing,
+  verifyForestCinemaListing,
 } = require("./verify-listings");
 
 const CW_VERIFY_CAP = 25;
@@ -20,6 +21,7 @@ const ODEON_VERIFY_CAP = 25;
 const EVERYMAN_VERIFY_CAP = 25;
 const PICTUREHOUSES_VERIFY_CAP = 25;
 const PCC_VERIFY_CAP = 25;
+const FOREST_VERIFY_CAP = 25;
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -856,6 +858,15 @@ async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
       verifyCurzonListing,
       CURZON_VERIFY_CAP,
       "Stale Curzon listings",
+    );
+  } else if (
+    venueId.startsWith("forestcinema.co.uk") &&
+    cgOnlyGenuine.length > 0
+  ) {
+    await verifyListings(
+      verifyForestCinemaListing,
+      FOREST_VERIFY_CAP,
+      "Stale Forest Cinema listings",
     );
   } else if (venueId.startsWith("odeon.co.uk") && cgOnlyGenuine.length > 0) {
     await verifyListings(

@@ -1,4 +1,7 @@
+const cheerio = require("cheerio");
 const { fromZonedTime } = require("date-fns-tz");
+const { fetchText } = require("scripts/common/utils");
+const { dailyCache } = require("scripts/common/cache");
 const getPageWithPlaywright = require("./common/get-page-with-playwright");
 
 // ---------------------------------------------------------------------------
@@ -275,6 +278,45 @@ async function verifyPrinceCharlesListing(url) {
 }
 
 // ---------------------------------------------------------------------------
+// Forest Cinema listing verification
+// ---------------------------------------------------------------------------
+
+// Check if a Forest Cinema screening still exists by fetching the event page
+// and looking for the date panel + matching performance time.
+// The page has `.panel_YYYYMMDD` containers with `a.perfButton` elements
+// showing the time (e.g. "15:45").
+async function verifyForestCinemaListing(url, screening) {
+  try {
+    const eventId = new URL(url).pathname.split("/").pop();
+    const html = await dailyCache(`forest-event-${eventId}`, () =>
+      fetchText(url),
+    );
+    const $ = cheerio.load(html);
+
+    const d = new Date(screening.timeMs);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const panel = $(`.panel_${yyyy}${mm}${dd}`);
+    if (panel.length === 0) return false;
+
+    const hh = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    const expectedTime = `${hh}:${min}`;
+
+    const times = panel
+      .find("a.perfButton")
+      .map((_, el) => $(el).text().trim())
+      .get();
+
+    return times.includes(expectedTime);
+  } catch (err) {
+    console.warn(`  [Forest Cinema] Error verifying ${url}: ${err.message}`);
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 module.exports = {
   verifyCineworldListing,
@@ -285,4 +327,5 @@ module.exports = {
   verifyEverymanListing,
   verifyPicturehousesListing,
   verifyPrinceCharlesListing,
+  verifyForestCinemaListing,
 };
