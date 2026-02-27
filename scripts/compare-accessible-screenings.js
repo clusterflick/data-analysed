@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { remove: removeDiacritics } = require("diacritics");
 const { getAttributesFor } = require("./utils");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
@@ -126,7 +127,7 @@ function venueNameSimilarity(a, b) {
 
 // Performance title similarity — lighter normalisation (no noise-word stripping)
 function normalizeName(name) {
-  return name
+  return removeDiacritics(name)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, " ")
     .replace(/\s+/g, " ")

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { remove: removeDiacritics } = require("diacritics");
 const { getAttributesFor } = require("./utils");
 const {
   verifyCineworldListing,
@@ -123,7 +124,7 @@ function venueNameSimilarity(a, b) {
 }
 
 function normalizeName(name) {
-  return name
+  return removeDiacritics(name)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, " ")
     .replace(/\s+/g, " ")
