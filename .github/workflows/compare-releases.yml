@@ -12,8 +12,8 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
       - run: npm install
@@ -51,7 +51,7 @@ jobs:
 
       - run: npm run compare:releases -- transformed-data/current transformed-data/previous ${{ steps.tags.outputs.current }} ${{ steps.tags.outputs.previous }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: comparison-report
