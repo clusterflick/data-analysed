@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT }}
 
       - name: Download current release
-        uses: clusterflick/release-downloader@v2
+        uses: clusterflick/release-downloader@v3
         with:
           token: ${{ secrets.PAT }}
           repository: "clusterflick/data-transformed"
@@ -41,7 +41,7 @@ jobs:
           out-file-path: "transformed-data/current"
 
       - name: Download previous release
-        uses: clusterflick/release-downloader@v2
+        uses: clusterflick/release-downloader@v3
         with:
           token: ${{ secrets.PAT }}
           repository: "clusterflick/data-transformed"

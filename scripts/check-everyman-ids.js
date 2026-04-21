@@ -27,7 +27,9 @@ async function checkEverymanIds() {
   for (const hash of pageData.staticQueryHashes) {
     const url = `${requestPrefix}page-data/sq/d/${hash}.json`;
     const data = await fetchJson(url);
-    if (data?.data?.allTheater) venueData = data.data.allTheater.nodes;
+    if (data?.data?.allTheater?.nodes?.[0]?.__typename === "Theater") {
+      venueData = data.data.allTheater.nodes;
+    }
   }
 
   const recorded = await getNullMapping(prefix);

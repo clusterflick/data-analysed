@@ -20,7 +20,7 @@ jobs:
           node-version-file: .node-version
       - run: npm install
       - run: npx playwright install --with-deps
-      - uses: clusterflick/release-downloader@v2
+      - uses: clusterflick/release-downloader@v3
         with:
           token: ${{ secrets.PAT }}
           repository: "clusterflick/data-transformed"
