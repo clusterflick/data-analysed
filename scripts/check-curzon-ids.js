@@ -1,17 +1,22 @@
 const slugify = require("slugify");
-const { sanitizePathSegment, fetchJson } = require("scripts/common/utils");
+const { sanitizePathSegment } = require("scripts/common/utils");
 const getPageWithPlaywright = require("./common/get-page-with-playwright");
 const { isInLondon, getNullMapping, getAttributesFor } = require("./utils");
 
 const prefix = "curzon.com-";
 const normalize = (value) => value.replace("Curzon ", "").trim();
 
-const getCinemaId = async ({ url, domain }) =>
-  (
-    await fetchJson(
-      `https://www.curzon.com/api/omnia/v1/page?friendly=${url.replace(domain, "")}/`,
-    )
-  ).vistaCinema.key;
+const getCinemaId = async ({ url, domain }) => {
+  const apiUrl = `https://www.curzon.com/api/omnia/v1/page?friendly=${url.replace(domain, "")}/`;
+  const cacheKey = `check-curzon-id${url.replace(domain, "").replace(/\//g, "-")}`;
+  const data = await getPageWithPlaywright(url, cacheKey, (page) =>
+    page.evaluate(
+      async (apiUrl) => fetch(apiUrl).then((r) => r.json()),
+      apiUrl,
+    ),
+  );
+  return data.vistaCinema.key;
+};
 
 async function checkCurzonIds() {
   const url = "https://www.curzon.com";
@@ -68,7 +73,7 @@ async function checkCurzonIds() {
       console.log(` - ❌ Missing data`);
     } else {
       const { retrieved, current } = recorded[cinema];
-      if (retrieved.name === current.name && retrieved.id === current.id) {
+      if (retrieved.name === current.name && retrieved.id.replace("01", "1") === current.id) {
         console.log(` - ✅ Matching data`);
       } else {
         failForError = true;
