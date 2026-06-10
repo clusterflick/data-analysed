@@ -84,6 +84,7 @@ async function verifyVueListing(url) {
       },
     );
 
+    if (result.status === 404) return false;
     if (result.status === 400) {
       const msg =
         result.data?.innerErrorMessage || result.data?.errorMessage || "";
@@ -143,7 +144,7 @@ async function verifyCurzonListing(url) {
     if (!m) return true; // can't extract ID, assume valid
     const showtimeId = m[1];
     const apiUrl = `https://vwc.curzon.com/WSVistaWebClient/ocapi/v1/showtimes/${showtimeId}`;
-    return verifyVistaListing(url, apiUrl, "Curzon");
+    return await verifyVistaListing(url, apiUrl, "Curzon");
   } catch (err) {
     console.warn(`  [Curzon] Error verifying ${url}: ${err.message}`);
     return true;
@@ -161,7 +162,7 @@ async function verifyOdeonListing(url) {
     const showtimeId = u.searchParams.get("showtimeId");
     if (!showtimeId) return true; // can't extract ID, assume valid
     const apiUrl = `https://vwc.odeon.co.uk/WSVistaWebClient/ocapi/v1/showtimes/${showtimeId}`;
-    return verifyVistaListing(url, apiUrl, "Odeon");
+    return await verifyVistaListing(url, apiUrl, "Odeon");
   } catch (err) {
     console.warn(`  [Odeon] Error verifying ${url}: ${err.message}`);
     return true;
