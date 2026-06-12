@@ -5,6 +5,9 @@ on:
 
 name: Compare CinemaGuide Screenings
 
+permissions:
+  contents: read
+
 jobs:
   compare:
     name: Compare CinemaGuide Screenings
@@ -13,6 +16,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set Playwright path
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6

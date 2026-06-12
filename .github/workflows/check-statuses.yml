@@ -3,6 +3,9 @@ on:
 
 name: Check Venue Statuses
 
+permissions:
+  contents: read
+
 jobs:
   check_cineworld:
     name: Check Cineworld
@@ -11,6 +14,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set Playwright path
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
@@ -26,6 +31,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
@@ -40,6 +47,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
@@ -53,6 +62,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set Playwright path
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
@@ -68,6 +79,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set Playwright path
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
@@ -84,6 +97,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
@@ -97,6 +112,8 @@ jobs:
       TZ: Europe/London
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Set Playwright path
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
