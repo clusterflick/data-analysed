@@ -33,6 +33,14 @@ async function checkEverymanIds() {
   }
 
   const recorded = await getNullMapping(prefix);
+  const excludedSpecialVenues = [
+    // Not an actual cinema - it's a seasonal summer pop-up with a hard coded
+    // schedule that we pull from a different source, so exclude it here.
+    `${prefix}everyman-on-the-canal-at-kings-cross`
+  ];
+  // Exclude special venues, like seasonal popups, which aren't listed on the site.
+  for (const venue of excludedSpecialVenues) delete recorded[venue];
+
   for (let {
     id,
     name,
