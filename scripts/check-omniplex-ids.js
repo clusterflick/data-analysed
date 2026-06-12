@@ -11,21 +11,19 @@ const normalize = (value) =>
 async function checkOmniplexIds() {
   const mainSite = await fetchText("https://www.omniplexcinemas.co.uk");
   const $ = cheerio.load(mainSite);
-  const venueData = $("#homeSelectCinema option")
+  const venueData = $("#conactlocalCinema option")
     .map((i, el) => ({ id: $(el).attr("id"), name: $(el).text().trim() }))
     .get()
     .filter(({ id }) => id);
 
   for (const venue of venueData) {
     const venuePage = await dailyCache(`omniplex-${venue.id}`, async () =>
-      fetchText(`https://www.omniplexcinemas.co.uk/cinema/${venue.id}`),
+      fetchText(`https://www.omniplexcinemas.co.uk/company/about/${venue.id}`),
     );
     const $ = cheerio.load(venuePage);
-    const [, lon, lat] = $(".OMP_locationMap .OMP_contactInfo .mainInfo a")
-      .attr("href")
-      .match(
-        /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=([^,]+),(.*?)&/i,
-      );
+    const [, lat, lon] = $("iframe[src*='google.com/maps']")
+      .attr("src")
+      .match(/[?&]q=([^,]+),([^&]+)/i);
     venue.coordinates = { lat, lon };
   }
 
