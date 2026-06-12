@@ -10,6 +10,7 @@ playwright-failures/
 *.kml
 
 output/
+retrieved-data/
 transformed-data/
 accessible-screenings-data/
 cinemaguide-data/
