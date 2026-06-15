@@ -18,11 +18,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Set Playwright path
-        run: echo "PLAYWRIGHT_BROWSERS_PATH=/mnt/runner-work/playwright-browsers" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - uses: clusterflick/.github/setup-cache-paths@main
       - run: npm install
       - run: npx playwright install --with-deps
       - uses: clusterflick/release-downloader@v3
