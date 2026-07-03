@@ -6,8 +6,15 @@ const path = require("path");
 //
 // The site proxies AlloCiné/Webedia's GraphQL through its own endpoint at
 // /api/data-api, which requires no auth token. Two queries are used:
-//   - `theaters`            → the list of London cinemas
+//   - `theaters`            → cinemas within a radius of central London
 //   - `theater(id).schedule → per-cinema showtimes for a date range
+//
+// The theater list is fetched by geographic radius (aroundCoords + maxDistance,
+// in km) rather than a fuzzy `search: "London"` text query. The text search both
+// let in false positives (e.g. "Boldon" is within edit-distance 2 of "London")
+// and missed outer-London venues whose names don't contain the word "London"
+// (Croydon, Richmond, Walthamstow, ...). Results are then filtered precisely to
+// the Greater London (GLA) boundary polygon.
 //
 // The output (ukca-data.json) is shaped to match what
 // compare-accessible-screenings.js expects, so that script needs no changes:
@@ -142,17 +149,75 @@ function scheduleDates(scheduleNodes) {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch all London theaters (paginated by offset)
+// Greater London geographic filtering
+// ---------------------------------------------------------------------------
+
+// Central London (Charing Cross-ish). The radius only needs to comfortably
+// enclose the whole GLA area — the boundary polygon does the precise cut — so a
+// generous value avoids clipping edge venues while keeping the request cheap.
+const LONDON_CENTRE = { latitude: 51.5074, longitude: -0.1278 };
+const SEARCH_RADIUS_KM = 40;
+
+const GLA_BOUNDARY_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "London_GLA_Boundary.geojson",
+);
+
+// Load the GLA boundary as an array of rings ([outerRing, ...holes]), each a
+// list of [lon, lat] pairs.
+function loadGlaPolygon() {
+  const geojson = JSON.parse(fs.readFileSync(GLA_BOUNDARY_PATH, "utf-8"));
+  return geojson.features[0].geometry.coordinates;
+}
+
+// Ray-casting point-in-polygon test over a single GeoJSON ring.
+function pointInRing(lon, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const intersects =
+      yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+// True when the point is inside the outer ring but not inside any hole.
+function pointInPolygon(lon, lat, rings) {
+  if (!pointInRing(lon, lat, rings[0])) return false;
+  for (let k = 1; k < rings.length; k++) {
+    if (pointInRing(lon, lat, rings[k])) return false;
+  }
+  return true;
+}
+
+function isInGreaterLondon(theater, glaPolygon) {
+  const coords = theater.coordinates;
+  if (!coords) return false;
+  return pointInPolygon(coords.longitude, coords.latitude, glaPolygon);
+}
+
+// ---------------------------------------------------------------------------
+// Fetch all theaters near London (paginated by offset)
 // ---------------------------------------------------------------------------
 
 const THEATERS_QUERY = `
-  query GetTheaters($limit: Int!, $offset: Int!) {
+  query GetTheaters(
+    $limit: Int!
+    $offset: Int!
+    $aroundCoords: TheaterCoordinatesInput
+    $maxDistance: Int
+  ) {
     theaters(
       affiliationId: "${AFFILIATION_ID}"
       iso_3166_1_a2: "GB"
       limit: $limit
       offset: $offset
-      search: "London"
+      aroundCoords: $aroundCoords
+      maxDistance: $maxDistance
     ) {
       totalCount
       nodes {
@@ -177,7 +242,12 @@ async function fetchAllTheaters() {
   while (true) {
     const page = offset / limit + 1;
     console.log(`  Fetching theater list page ${page} (offset ${offset})...`);
-    const data = await graphql(THEATERS_QUERY, { limit, offset });
+    const data = await graphql(THEATERS_QUERY, {
+      limit,
+      offset,
+      aroundCoords: LONDON_CENTRE,
+      maxDistance: SEARCH_RADIUS_KM,
+    });
     const { totalCount, nodes: pageNodes } = data.theaters;
     nodes.push(...(pageNodes || []));
 
@@ -250,12 +320,23 @@ async function main() {
 
   console.log(`Date range: ${from} to ${to}`);
 
-  // Fetch all London theaters
-  console.log("\nFetching London theaters...");
+  // Fetch theaters within the search radius of central London
+  console.log(`\nFetching theaters within ${SEARCH_RADIUS_KM}km of London...`);
   const rawTheaters = await fetchAllTheaters();
   console.log(`  Found ${rawTheaters.length} theaters`);
 
-  const theaters = rawTheaters.map(mapTheater);
+  // Filter precisely to the Greater London (GLA) boundary. Keep the raw node and
+  // its mapped form paired so the schedule loop below stays in sync.
+  const glaPolygon = loadGlaPolygon();
+  const pairs = rawTheaters
+    .map((raw) => ({ raw, theater: mapTheater(raw) }))
+    .filter(({ theater }) => isInGreaterLondon(theater, glaPolygon));
+  const excludedCount = rawTheaters.length - pairs.length;
+  console.log(
+    `  ${pairs.length} within Greater London boundary (${excludedCount} outside, filtered out)`,
+  );
+
+  const theaters = pairs.map((p) => p.theater);
 
   // Fetch showtimes (schedule) for each theater
   console.log("\nFetching showtimes per theater...");
@@ -264,11 +345,10 @@ async function main() {
   let failCount = 0;
   let withShowtimes = 0;
 
-  for (let i = 0; i < rawTheaters.length; i++) {
-    const raw = rawTheaters[i];
-    const theater = theaters[i];
+  for (let i = 0; i < pairs.length; i++) {
+    const { raw, theater } = pairs[i];
 
-    process.stdout.write(`  [${i + 1}/${rawTheaters.length}] ${raw.name}... `);
+    process.stdout.write(`  [${i + 1}/${pairs.length}] ${raw.name}... `);
 
     try {
       const scheduleNodes = await fetchSchedule(raw.id, from, to);
@@ -289,7 +369,7 @@ async function main() {
     }
 
     // Respectful delay between requests
-    if (i < rawTheaters.length - 1) {
+    if (i < pairs.length - 1) {
       await delay(300);
     }
   }
