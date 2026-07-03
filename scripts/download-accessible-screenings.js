@@ -2,283 +2,231 @@ const fs = require("fs");
 const path = require("path");
 
 // ---------------------------------------------------------------------------
-// Token extraction from UKCA website
+// UKCA (Accessible Screenings UK) data source
+//
+// The site proxies AlloCiné/Webedia's GraphQL through its own endpoint at
+// /api/data-api, which requires no auth token. Two queries are used:
+//   - `theaters`            → the list of London cinemas
+//   - `theater(id).schedule → per-cinema showtimes for a date range
+//
+// The output (ukca-data.json) is shaped to match what
+// compare-accessible-screenings.js expects, so that script needs no changes:
+//   - theater.id is a base64 "Theater:<code>" string (see extractShortId there)
+//   - showtimes are keyed by the short theater code
 // ---------------------------------------------------------------------------
 
-const UKCA_SEARCH_URL =
-  "https://accessiblescreeningsuk.co.uk/search-results/?location=London&screeningType=All";
-const UKCA_BASE_URL = "https://accessiblescreeningsuk.co.uk";
+const ORIGIN = "https://accessiblescreeningsuk.co.uk";
+const REFERER = `${ORIGIN}/search-results/?location=London&screeningType=All`;
+const API_URL = `${ORIGIN}/api/data-api`;
+const AFFILIATION_ID = "1000092113";
+const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
 
-async function extractTokens() {
-  console.log("Extracting JWT tokens from UKCA website...");
-
-  // Step 1: Fetch the search results page HTML
-  const htmlRes = await fetch(UKCA_SEARCH_URL);
-  if (!htmlRes.ok) {
-    throw new Error(`Failed to fetch UKCA page: ${htmlRes.status}`);
-  }
-  const html = await htmlRes.text();
-
-  // Step 2: Find the chunk mapping and locate the page component JS file
-  // Gatsby embeds chunk mapping in a script tag with id "gatsby-chunk-mapping"
-  // or inlines it. We look for the component---src-templates-page-tsx key.
-  const chunkMatch = html.match(
-    /component---src-templates-page-tsx[^"]*?":\s*\[\s*"([^"]+)"\s*\]/,
-  );
-
-  let jsUrl;
-  if (chunkMatch) {
-    // The chunk mapping gives us the hash; construct the JS filename
-    const chunkFile = chunkMatch[1];
-    jsUrl = `${UKCA_BASE_URL}/${chunkFile}`;
-  } else {
-    // Fallback: look for the script tag directly
-    const scriptMatch = html.match(
-      /src="([^"]*component---src-templates-page-tsx[^"]*)"/,
-    );
-    if (!scriptMatch) {
-      throw new Error(
-        "Could not find component---src-templates-page-tsx JS bundle in UKCA page",
-      );
-    }
-    jsUrl = scriptMatch[1].startsWith("http")
-      ? scriptMatch[1]
-      : `${UKCA_BASE_URL}${scriptMatch[1]}`;
-  }
-
-  console.log(`  Fetching JS bundle: ${jsUrl}`);
-
-  // Step 3: Fetch the JS bundle
-  const jsRes = await fetch(jsUrl);
-  if (!jsRes.ok) {
-    throw new Error(`Failed to fetch JS bundle: ${jsRes.status}`);
-  }
-  const jsCode = await jsRes.text();
-
-  // Step 4: Extract the two Bearer tokens
-  // Theater list token: used with graph.allocine.fr
-  // Showtimes token: used with api.webediamovies.pro
-  const tokenPattern =
-    /Authorization:"Bearer (eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"/g;
-  const tokens = [];
-  let match;
-  while ((match = tokenPattern.exec(jsCode)) !== null) {
-    tokens.push(match[1]);
-  }
-
-  if (tokens.length < 2) {
-    throw new Error(
-      `Expected 2 JWT tokens in JS bundle, found ${tokens.length}`,
-    );
-  }
-
-  // The first token in the bundle is for the theater list API (graph.allocine.fr)
-  // The second is for the showtimes API (api.webediamovies.pro)
-  // Verify by checking the surrounding context
-  const allocineIdx = jsCode.indexOf("graph.allocine.fr");
-  const webediaIdx = jsCode.indexOf("api.webediamovies.pro");
-
-  let theaterToken, showtimeToken;
-  if (allocineIdx >= 0 && webediaIdx >= 0) {
-    // Find which token appears near which URL
-    const token1Idx = jsCode.indexOf(tokens[0]);
-    const token2Idx = jsCode.indexOf(tokens[1]);
-
-    if (Math.abs(token1Idx - allocineIdx) < Math.abs(token1Idx - webediaIdx)) {
-      theaterToken = tokens[0];
-      showtimeToken = tokens[1];
-    } else {
-      theaterToken = tokens[1];
-      showtimeToken = tokens[0];
-    }
-  } else {
-    // Fallback: assume order as found
-    theaterToken = tokens[0];
-    showtimeToken = tokens[1];
-  }
-
-  console.log(`  Theater list token: ${theaterToken.substring(0, 30)}...`);
-  console.log(`  Showtimes token:    ${showtimeToken.substring(0, 30)}...`);
-
-  return { theaterToken, showtimeToken };
-}
-
-// ---------------------------------------------------------------------------
-// GraphQL helpers
-// ---------------------------------------------------------------------------
-
-async function queryTheaterList(query, token) {
-  const res = await fetch("https://graph.allocine.fr/v1/ukca/", {
+async function graphql(query, variables) {
+  const res = await fetch(API_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
+      Origin: ORIGIN,
+      Referer: REFERER,
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, variables }),
   });
   if (!res.ok) {
-    throw new Error(`Theater list API error: ${res.status}`);
+    throw new Error(`API HTTP ${res.status}`);
   }
-  const data = await res.json();
-  if (!data.data || !data.data.theaterList) {
+  const body = await res.json();
+  if (body.errors) {
     throw new Error(
-      `Unexpected theater list response: ${JSON.stringify(data).substring(0, 200)}`,
+      `GraphQL error: ${JSON.stringify(body.errors).substring(0, 300)}`,
     );
   }
-  return data.data.theaterList;
-}
-
-async function queryShowtimes(query, token) {
-  const res = await fetch("https://api.webediamovies.pro/graphql", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
-  });
-  if (!res.ok) {
-    throw new Error(`Showtimes API error: ${res.status}`);
-  }
-  const data = await res.json();
-  if (!data.data || !data.data.external) {
-    throw new Error(
-      `Unexpected showtimes response: ${JSON.stringify(data).substring(0, 200)}`,
-    );
-  }
-  return data.data.external.showtimes.byTheater;
+  return body.data;
 }
 
 // ---------------------------------------------------------------------------
-// Fetch all London theaters (with pagination)
+// Shape mapping — new API → the shape compare-accessible-screenings.js expects
 // ---------------------------------------------------------------------------
 
-async function fetchAllTheaters(token, toDate) {
-  const allTheaters = [];
-  let afterCursor = null;
-  let page = 1;
+// Encode a short theater code back into the base64 "Theater:<code>" form so the
+// comparison script's extractShortId() decodes it to the code again.
+function encodeTheaterId(code) {
+  return Buffer.from(`Theater:${code}`).toString("base64");
+}
+
+// Screen tags look like "Screen.Accessibility.AudioDescription"; the comparison
+// script checks screen.accessibility for "AUDIO_DESCRIPTION" (SCREAMING_SNAKE).
+function mapScreenAccessibility(tags) {
+  const result = [];
+  for (const tag of tags || []) {
+    if (!tag.startsWith("Screen.Accessibility.")) continue;
+    result.push(
+      tag
+        .replace("Screen.Accessibility.", "")
+        .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+        .toUpperCase(),
+    );
+  }
+  return result;
+}
+
+function mapTheater(node) {
+  return {
+    id: encodeTheaterId(node.id),
+    name: node.name,
+    url: node.url,
+    location: {
+      address: node.address?.address ?? null,
+      city: node.address?.city ?? null,
+      region: node.address?.state ?? null,
+      zip: node.address?.zip ?? null,
+      country: "United Kingdom",
+    },
+    coordinates: node.geocoordinates
+      ? {
+          latitude: node.geocoordinates.latitude,
+          longitude: node.geocoordinates.longitude,
+        }
+      : null,
+    screens: (node.screens || []).map((s) => ({
+      name: s.name,
+      accessibility: mapScreenAccessibility(s.tags),
+    })),
+    tags: { list: node.tags || [] },
+    opening: node.opening?.status ?? null,
+    // Filled in once the theater's schedule has been fetched.
+    showtimesDates: [],
+  };
+}
+
+// A ticketing entry may carry a real cinema booking URL (provider DEFAULT) and a
+// RELAY redirect wrapper. Prefer the DEFAULT booking URLs — those match our data.
+function pickBookingUrls(ticketingUrls) {
+  const list = ticketingUrls || [];
+  const preferred = list
+    .filter((t) => t.provider === "DEFAULT" && t.url)
+    .map((t) => t.url);
+  if (preferred.length > 0) return preferred;
+  return list.filter((t) => t.url).map((t) => t.url);
+}
+
+function mapSchedule(scheduleNodes) {
+  return (scheduleNodes || []).map((node) => ({
+    movie: {
+      id: node.movie?.id ?? null,
+      originalTitle: node.movie?.title ?? null,
+      en_GB: node.movie?.en_GB
+        ? {
+            title: node.movie.en_GB.title,
+            poster: node.movie.en_GB.poster?.url ?? null,
+          }
+        : null,
+    },
+    showtimes: (node.showtimes || []).map((s) => ({
+      startsAt: s.startsAt,
+      tags: s.attributes || [],
+      data: { ticketing: [{ urls: pickBookingUrls(s.ticketingUrls) }] },
+    })),
+  }));
+}
+
+function scheduleDates(scheduleNodes) {
+  const dates = new Set();
+  for (const node of scheduleNodes || []) {
+    for (const s of node.showtimes || []) {
+      if (s.startsAt) dates.add(s.startsAt.substring(0, 10));
+    }
+  }
+  return [...dates].sort();
+}
+
+// ---------------------------------------------------------------------------
+// Fetch all London theaters (paginated by offset)
+// ---------------------------------------------------------------------------
+
+const THEATERS_QUERY = `
+  query GetTheaters($limit: Int!, $offset: Int!) {
+    theaters(
+      affiliationId: "${AFFILIATION_ID}"
+      iso_3166_1_a2: "GB"
+      limit: $limit
+      offset: $offset
+      search: "London"
+    ) {
+      totalCount
+      nodes {
+        id
+        name
+        url
+        address { address city state zip }
+        geocoordinates { latitude longitude }
+        tags
+        screens { name tags }
+        opening { status }
+      }
+    }
+  }
+`;
+
+async function fetchAllTheaters() {
+  const limit = 120;
+  let offset = 0;
+  const nodes = [];
 
   while (true) {
-    const afterClause = afterCursor !== null ? `after: "${afterCursor}",` : "";
+    const page = offset / limit + 1;
+    console.log(`  Fetching theater list page ${page} (offset ${offset})...`);
+    const data = await graphql(THEATERS_QUERY, { limit, offset });
+    const { totalCount, nodes: pageNodes } = data.theaters;
+    nodes.push(...(pageNodes || []));
 
-    const query = `
-      query {
-        theaterList(
-          affiliation: {
-            activity: THEATER_TRADE_GROUP,
-            companyId: "Q29tcGFueToxMDAwMDkyMTEz"
-          },
-          ${afterClause}
-          countries: [UNITED_KINGDOM],
-          first: 120,
-          order: [ALPHABETICAL],
-          search: "London"
-        ) {
-          edges {
-            node {
-              id
-              name
-              location {
-                address
-                city
-                country
-                region
-                zip
-              }
-              coordinates {
-                latitude
-                longitude
-              }
-              screens {
-                accessibility
-                name
-              }
-              tags {
-                list
-              }
-              url
-              showtimesDates(
-                country: [UNITED_KINGDOM]
-                to: "${toDate}"
-              )
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-      }
-    `;
-
-    console.log(`  Fetching theater list page ${page}...`);
-    const result = await queryTheaterList(query, token);
-    const edges = result.edges || [];
-    allTheaters.push(...edges.map((e) => e.node));
-
-    if (result.pageInfo.hasNextPage) {
-      afterCursor = result.pageInfo.endCursor;
-      page++;
-    } else {
-      break;
-    }
+    if (nodes.length >= totalCount || (pageNodes || []).length === 0) break;
+    offset += limit;
   }
 
-  return allTheaters;
+  return nodes;
 }
 
 // ---------------------------------------------------------------------------
-// Fetch showtimes for a single theater
+// Fetch showtimes (schedule) for a single theater
 // ---------------------------------------------------------------------------
 
-function extractShortId(base64Id) {
-  const decoded = Buffer.from(base64Id, "base64").toString("utf-8");
-  // Format: "Theater:X0XWE" -> "X0XWE"
-  const parts = decoded.split(":");
-  return parts.length > 1 ? parts[1] : decoded;
-}
-
-async function fetchShowtimesForTheater(shortId, toDate, token) {
-  const query = `
-    {
-      external {
-        showtimes {
-          byTheater(
-            to: "${toDate}",
-            theater: "${shortId}"
-          ) {
-            movie {
-              id
-              originalTitle: title
-              en_GB: localeData(locale: "en_GB") {
-                title
-                poster
-              }
-              fallback: localeData(locale: "en_US") {
-                title
-                poster
-              }
-            }
-            showtimes {
-              startsAt
-              tags
-              data {
-                ticketing {
-                  urls
-                }
-              }
-            }
+const SCHEDULE_QUERY = `
+  query GetSchedule(
+    $id: ID!
+    $from: DateTimeWithoutTimeZone
+    $to: DateTimeWithoutTimeZone
+  ) {
+    theater(id: $id) {
+      schedule(from: $from, to: $to) {
+        totalCount
+        nodes {
+          movie {
+            id
+            title
+            en_GB: locale(locale: "en_GB") { title poster { url } }
+          }
+          showtimes {
+            internalId
+            startsAt
+            attributes
+            ticketingUrls { provider url }
+            screen { name tags }
           }
         }
       }
     }
-  `;
+  }
+`;
 
-  return await queryShowtimes(query, token);
+async function fetchSchedule(code, from, to) {
+  const data = await graphql(SCHEDULE_QUERY, { id: code, from, to });
+  return data.theater?.schedule?.nodes || [];
 }
 
 // ---------------------------------------------------------------------------
-// Delay helper
+// Helpers
 // ---------------------------------------------------------------------------
 
 function delay(ms) {
@@ -292,64 +240,56 @@ function delay(ms) {
 async function main() {
   const startTime = Date.now();
 
-  // Extract tokens from the UKCA website
-  const { theaterToken, showtimeToken } = await extractTokens();
-
-  // Calculate toDate: ~3 weeks from now
+  // Date range: today (start of day) to ~3 weeks out.
+  const now = new Date();
+  const from = `${now.toISOString().split("T")[0]}T00:00:00`;
   const toDate = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split("T")[0];
+  const to = `${toDate}T00:00:00`;
 
-  console.log(`\nDate range: today to ${toDate}`);
+  console.log(`Date range: ${from} to ${to}`);
 
   // Fetch all London theaters
   console.log("\nFetching London theaters...");
-  const theaters = await fetchAllTheaters(theaterToken, toDate);
-  console.log(`  Found ${theaters.length} theaters`);
+  const rawTheaters = await fetchAllTheaters();
+  console.log(`  Found ${rawTheaters.length} theaters`);
 
-  // Filter to theaters that have upcoming showtimes
-  const theatersWithShowtimes = theaters.filter(
-    (t) => t.showtimesDates && t.showtimesDates.length > 0,
-  );
-  console.log(
-    `  ${theatersWithShowtimes.length} theaters have upcoming showtimes`,
-  );
+  const theaters = rawTheaters.map(mapTheater);
 
-  // Fetch showtimes for each theater
+  // Fetch showtimes (schedule) for each theater
   console.log("\nFetching showtimes per theater...");
   const showtimes = {};
   let successCount = 0;
   let failCount = 0;
+  let withShowtimes = 0;
 
-  for (let i = 0; i < theatersWithShowtimes.length; i++) {
-    const theater = theatersWithShowtimes[i];
-    const shortId = extractShortId(theater.id);
+  for (let i = 0; i < rawTheaters.length; i++) {
+    const raw = rawTheaters[i];
+    const theater = theaters[i];
 
-    process.stdout.write(
-      `  [${i + 1}/${theatersWithShowtimes.length}] ${theater.name}... `,
-    );
+    process.stdout.write(`  [${i + 1}/${rawTheaters.length}] ${raw.name}... `);
 
     try {
-      const result = await fetchShowtimesForTheater(
-        shortId,
-        toDate,
-        showtimeToken,
-      );
-      showtimes[shortId] = result || [];
-      const showCount = (result || []).reduce(
+      const scheduleNodes = await fetchSchedule(raw.id, from, to);
+      showtimes[raw.id] = mapSchedule(scheduleNodes);
+      theater.showtimesDates = scheduleDates(scheduleNodes);
+
+      const showCount = (showtimes[raw.id] || []).reduce(
         (sum, m) => sum + (m.showtimes ? m.showtimes.length : 0),
         0,
       );
       console.log(`${showCount} showtimes`);
+      if (showCount > 0) withShowtimes++;
       successCount++;
     } catch (err) {
       console.log(`FAILED: ${err.message}`);
-      showtimes[shortId] = [];
+      showtimes[raw.id] = [];
       failCount++;
     }
 
     // Respectful delay between requests
-    if (i < theatersWithShowtimes.length - 1) {
+    if (i < rawTheaters.length - 1) {
       await delay(300);
     }
   }
@@ -358,11 +298,12 @@ async function main() {
   const output = {
     metadata: {
       fetchedAt: new Date().toISOString(),
-      toDate,
+      from,
+      to: toDate,
       theaterCount: theaters.length,
-      theatersWithShowtimes: theatersWithShowtimes.length,
-      showtimesFetched: successCount,
-      showtimesFailed: failCount,
+      theatersWithShowtimes: withShowtimes,
+      schedulesFetched: successCount,
+      schedulesFailed: failCount,
       elapsedMs: Date.now() - startTime,
     },
     theaters,
@@ -377,7 +318,7 @@ async function main() {
 
   console.log(`\nData saved to ${outputPath}`);
   console.log(
-    `  ${theaters.length} theaters, ${successCount} showtimes fetched (${failCount} failed)`,
+    `  ${theaters.length} theaters, ${withShowtimes} with showtimes (${failCount} failed)`,
   );
   console.log(`  Elapsed: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 }
