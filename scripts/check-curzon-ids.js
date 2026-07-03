@@ -73,7 +73,10 @@ async function checkCurzonIds() {
       console.log(` - ❌ Missing data`);
     } else {
       const { retrieved, current } = recorded[cinema];
-      if (retrieved.name === current.name && retrieved.id.replace("01", "1") === current.id) {
+      if (
+        retrieved.name === current.name &&
+        retrieved.id.replace("01", "1") === current.id
+      ) {
         console.log(` - ✅ Matching data`);
       } else {
         failForError = true;

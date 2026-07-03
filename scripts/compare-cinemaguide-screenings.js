@@ -566,7 +566,8 @@ function matchByUrlAndTime(
         const delta = Math.abs(cgFlat[ci].timeMs - offset - ourFlat[oi].time);
         if (delta < bestDelta) bestDelta = delta;
       }
-      if (bestDelta <= TIME_TOLERANCE_MS) candidates.push({ ci, oi, delta: bestDelta });
+      if (bestDelta <= TIME_TOLERANCE_MS)
+        candidates.push({ ci, oi, delta: bestDelta });
     }
   }
 
@@ -575,7 +576,11 @@ function matchByUrlAndTime(
     if (usedCgIdx.has(ci) || usedOurIdx.has(oi)) continue;
     usedCgIdx.add(ci);
     usedOurIdx.add(oi);
-    matchedPerfs.push({ cg: cgFlat[ci], ours: ourFlat[oi], matchMethod: method });
+    matchedPerfs.push({
+      cg: cgFlat[ci],
+      ours: ourFlat[oi],
+      matchMethod: method,
+    });
   }
 }
 

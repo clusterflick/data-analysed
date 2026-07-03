@@ -17,17 +17,21 @@ function fetchJson(url) {
       },
     };
 
-    https.get(url, options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error(`Failed to parse response from ${url}: ${e.message}`));
-        }
-      });
-    }).on("error", reject);
+    https
+      .get(url, options, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(
+              new Error(`Failed to parse response from ${url}: ${e.message}`),
+            );
+          }
+        });
+      })
+      .on("error", reject);
   });
 }
 
@@ -41,7 +45,20 @@ function formatTag(tag) {
   const match = tag.match(/^(\d{4})(\d{2})(\d{2})\.(\d{2})(\d{2})(\d{2})$/);
   if (!match) return tag;
   const [, y, m, d, hh, mm] = match;
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   return `${tag}  (${d} ${months[parseInt(m, 10) - 1]} ${y} ${hh}:${mm})`;
 }
 
@@ -72,7 +89,7 @@ async function main() {
       } catch (e) {
         return { repo, error: e.message };
       }
-    })
+    }),
   );
 
   const maxRepoLen = Math.max(...REPOS.map((r) => r.length));
@@ -86,10 +103,14 @@ async function main() {
     }
 
     console.log(`${label}  ${formatTag(result.tag)}`);
-    console.log(`${"".padEnd(maxRepoLen)}  Total: ${formatSize(result.totalSize)} across ${result.assets.length} asset(s)`);
+    console.log(
+      `${"".padEnd(maxRepoLen)}  Total: ${formatSize(result.totalSize)} across ${result.assets.length} asset(s)`,
+    );
 
     for (const asset of result.assets) {
-      console.log(`${"".padEnd(maxRepoLen)}    - ${asset.name}: ${formatSize(asset.size)}`);
+      console.log(
+        `${"".padEnd(maxRepoLen)}    - ${asset.name}: ${formatSize(asset.size)}`,
+      );
     }
 
     console.log();
