@@ -28,6 +28,25 @@ const CASTLE_VERIFY_CAP = 25;
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
+// Venues where CinemaGuide mis-parses BST datetimes: it trusts a machine-
+// readable datetime attribute that the venue writes as local (BST) time but
+// labels as UTC, so CG's times run 1 hour ahead of ours during British Summer
+// Time. Our pipeline stores the correct UTC time. For these venues we shift
+// CG's time back by 1 hour before comparing (only for timestamps that fall in
+// the BST window — outside it CG's times are already correct).
+const BST_OFFSET_VENUES = new Set([
+  "barbican.org.uk",
+  "forestcinema.co.uk",
+  "arthousecrouchend.co.uk",
+  "olympiccinema.com",
+  "peckhamplex.london",
+  "thegardencinema.co.uk",
+  "electriccinema.co.uk-white-city",
+  "electriccinema.co.uk-portobello",
+]);
+
+const BST_OFFSET_MS = 3_600_000;
+
 // ---------------------------------------------------------------------------
 // Known CG-only mismatches — screenings we deliberately don't include
 // ---------------------------------------------------------------------------
@@ -498,6 +517,68 @@ function flattenOurPerformances(showings) {
 // Screening matching
 // ---------------------------------------------------------------------------
 
+// Rewrite a CG booking link into the form used in our data before comparison.
+// Venue-specific fixes for cases where CG's link is our URL plus extra path.
+function canonicalizeCgLink(link, venueId) {
+  if (!link) return link;
+  // Electric Cinema: CG links to /film/{slug}/film-times/{location} while our
+  // showing.url is /film/{slug}/. Strip the film-times suffix so they match.
+  if (venueId.startsWith("electriccinema.co.uk")) {
+    return link.replace(/\/film-times\/[^/?#]+\/?(?=$|[?#])/, "");
+  }
+  return link;
+}
+
+// Match remaining CG screenings to ours by URL equality + time proximity.
+// `cgNormUrls` / `ourNormUrls` are the pre-normalised URLs to compare (booking
+// or showing). `offsets` lists the candidate shifts (ms) to subtract from CG's
+// time before comparing; for each CG/our pair the smallest resulting delta wins.
+// A non-zero offset only applies to CG timestamps within BST and recovers the
+// venues whose CG times run 1 hour ahead (see BST_OFFSET_VENUES).
+//
+// Matches are assigned globally smallest-delta-first rather than in CG order, so
+// a BST-shifted CG time can't greedily steal a same-URL screening that belongs
+// to a different (correctly-timed) performance.
+function matchByUrlAndTime(
+  cgFlat,
+  ourFlat,
+  usedCgIdx,
+  usedOurIdx,
+  cgNormUrls,
+  ourNormUrls,
+  offsets,
+  method,
+  matchedPerfs,
+) {
+  const candidates = [];
+  for (let ci = 0; ci < cgFlat.length; ci++) {
+    if (usedCgIdx.has(ci) || !cgNormUrls[ci]) continue;
+    const cgNorm = cgNormUrls[ci];
+    const inBst = isDuringBST(cgFlat[ci].timeMs);
+
+    for (let oi = 0; oi < ourFlat.length; oi++) {
+      if (usedOurIdx.has(oi) || !ourNormUrls[oi]) continue;
+      if (cgNorm !== ourNormUrls[oi]) continue;
+
+      let bestDelta = Infinity;
+      for (const offset of offsets) {
+        if (offset && !inBst) continue;
+        const delta = Math.abs(cgFlat[ci].timeMs - offset - ourFlat[oi].time);
+        if (delta < bestDelta) bestDelta = delta;
+      }
+      if (bestDelta <= TIME_TOLERANCE_MS) candidates.push({ ci, oi, delta: bestDelta });
+    }
+  }
+
+  candidates.sort((a, b) => a.delta - b.delta);
+  for (const { ci, oi } of candidates) {
+    if (usedCgIdx.has(ci) || usedOurIdx.has(oi)) continue;
+    usedCgIdx.add(ci);
+    usedOurIdx.add(oi);
+    matchedPerfs.push({ cg: cgFlat[ci], ours: ourFlat[oi], matchMethod: method });
+  }
+}
+
 function matchScreenings(cgFlat, ourFlat, venueId = "") {
   const matchedPerfs = [];
   const cgOnly = [];
@@ -517,6 +598,9 @@ function matchScreenings(cgFlat, ourFlat, venueId = "") {
   );
   const cgPerfIds = cgFlat.map((cg) =>
     cg.link ? extractPerfId(cg.link) : null,
+  );
+  const cgNormUrls = cgFlat.map((cg) =>
+    cg.link ? normalizeUrl(canonicalizeCgLink(cg.link, venueId)) : null,
   );
   // Slug tokens: last path segment of CG links that have no query params (clean slug URLs).
   // Only computed for slug-style URLs; null for query-param URLs like BFI's old ASP format.
@@ -538,38 +622,24 @@ function matchScreenings(cgFlat, ourFlat, venueId = "") {
     (o) => new Set(normalizeName(o.showingTitle).split(" ").filter(Boolean)),
   );
 
+  // CG mis-parses BST datetimes for some venues, running 1 hour ahead of ours.
+  // For those venues the URL+time passes also try a 1-hour-back interpretation.
+  const timeOffsets = BST_OFFSET_VENUES.has(venueId) ? [0, BST_OFFSET_MS] : [0];
+
   // Primary: booking URL + time match
   // Time check prevents event-level URLs (e.g. TicketSource) from matching a
   // CG performance to a different performance of the same event in our data.
-  for (let ci = 0; ci < cgFlat.length; ci++) {
-    const cg = cgFlat[ci];
-    if (usedCgIdx.has(ci) || !cg.link) continue;
-    const cgNorm = normalizeUrl(cg.link);
-
-    let bestOurIdx = -1;
-    let bestDelta = Infinity;
-
-    for (let oi = 0; oi < ourFlat.length; oi++) {
-      if (usedOurIdx.has(oi) || !ourNormUrls[oi]) continue;
-      if (cgNorm !== ourNormUrls[oi]) continue;
-      const delta = Math.abs(cg.timeMs - ourFlat[oi].time);
-      if (delta > TIME_TOLERANCE_MS) continue;
-      if (delta < bestDelta) {
-        bestDelta = delta;
-        bestOurIdx = oi;
-      }
-    }
-
-    if (bestOurIdx >= 0) {
-      usedCgIdx.add(ci);
-      usedOurIdx.add(bestOurIdx);
-      matchedPerfs.push({
-        cg,
-        ours: ourFlat[bestOurIdx],
-        matchMethod: "bookingUrl",
-      });
-    }
-  }
+  matchByUrlAndTime(
+    cgFlat,
+    ourFlat,
+    usedCgIdx,
+    usedOurIdx,
+    cgNormUrls,
+    ourNormUrls,
+    timeOffsets,
+    "bookingUrl",
+    matchedPerfs,
+  );
 
   // Secondary: perf ID match
   for (let ci = 0; ci < cgFlat.length; ci++) {
@@ -593,75 +663,17 @@ function matchScreenings(cgFlat, ourFlat, venueId = "") {
   // Tertiary: showing URL + time match
   // For venues like Barbican where CG links to the event page and our showing.url
   // is also the event page (not the booking URL). Useful when perf ID isn't available.
-  for (let ci = 0; ci < cgFlat.length; ci++) {
-    if (usedCgIdx.has(ci) || !cgFlat[ci].link) continue;
-    const cgNorm = normalizeUrl(cgFlat[ci].link);
-
-    let bestOurIdx = -1;
-    let bestDelta = Infinity;
-
-    for (let oi = 0; oi < ourFlat.length; oi++) {
-      if (usedOurIdx.has(oi) || !ourShowingNormUrls[oi]) continue;
-      if (cgNorm !== ourShowingNormUrls[oi]) continue;
-
-      const delta = Math.abs(cgFlat[ci].timeMs - ourFlat[oi].time);
-      if (delta > TIME_TOLERANCE_MS) continue;
-
-      if (delta < bestDelta) {
-        bestDelta = delta;
-        bestOurIdx = oi;
-      }
-    }
-
-    if (bestOurIdx >= 0) {
-      usedCgIdx.add(ci);
-      usedOurIdx.add(bestOurIdx);
-      matchedPerfs.push({
-        cg: cgFlat[ci],
-        ours: ourFlat[bestOurIdx],
-        matchMethod: "showingUrl",
-      });
-    }
-  }
-
-  // Quaternary (Barbican only): showing URL + BST-adjusted time match
-  // CinemaGuide trusts Barbican's machine-readable datetime attribute, which
-  // is wrong during BST (Barbican writes local time as if it were UTC). Our
-  // pipeline reads the display text and stores the correct UTC time, so CG
-  // times are 1 hour ahead of ours for BST-period events. Shift CG's time
-  // back by 1 hour before comparing.
-  if (venueId === "barbican.org.uk") {
-    for (let ci = 0; ci < cgFlat.length; ci++) {
-      if (usedCgIdx.has(ci) || !cgFlat[ci].link) continue;
-      if (!isDuringBST(cgFlat[ci].timeMs)) continue;
-      const cgNorm = normalizeUrl(cgFlat[ci].link);
-      const cgAdjustedTimeMs = cgFlat[ci].timeMs - 3_600_000;
-
-      let bestOurIdx = -1;
-      let bestDelta = Infinity;
-
-      for (let oi = 0; oi < ourFlat.length; oi++) {
-        if (usedOurIdx.has(oi) || !ourShowingNormUrls[oi]) continue;
-        if (cgNorm !== ourShowingNormUrls[oi]) continue;
-        const delta = Math.abs(cgAdjustedTimeMs - ourFlat[oi].time);
-        if (delta > TIME_TOLERANCE_MS) continue;
-        if (delta < bestDelta) {
-          bestDelta = delta;
-          bestOurIdx = oi;
-        }
-      }
-
-      if (bestOurIdx >= 0) {
-        usedCgIdx.add(ci);
-        usedOurIdx.add(bestOurIdx);
-        matchedPerfs.push({
-          cg: cgFlat[ci],
-          ours: ourFlat[bestOurIdx],
-          matchMethod: "showingUrlBstOffset",
-        });
-      }
-    }
-  }
+  matchByUrlAndTime(
+    cgFlat,
+    ourFlat,
+    usedCgIdx,
+    usedOurIdx,
+    cgNormUrls,
+    ourShowingNormUrls,
+    timeOffsets,
+    "showingUrl",
+    matchedPerfs,
+  );
 
   // Quinary: URL slug vs title tokens + time match
   // For venues like BFI where CG uses clean slug URLs (no query params) and the
