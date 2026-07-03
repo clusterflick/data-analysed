@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { isInLondon } = require("./utils");
 
 // ---------------------------------------------------------------------------
 // UKCA (Accessible Screenings UK) data source
@@ -153,51 +154,19 @@ function scheduleDates(scheduleNodes) {
 // ---------------------------------------------------------------------------
 
 // Central London (Charing Cross-ish). The radius only needs to comfortably
-// enclose the whole GLA area — the boundary polygon does the precise cut — so a
-// generous value avoids clipping edge venues while keeping the request cheap.
+// enclose the whole GLA area — the boundary polygon (via isInLondon) does the
+// precise cut — so a generous value avoids clipping edge venues while keeping
+// the request cheap.
 const LONDON_CENTRE = { latitude: 51.5074, longitude: -0.1278 };
 const SEARCH_RADIUS_KM = 40;
 
-const GLA_BOUNDARY_PATH = path.join(
-  __dirname,
-  "..",
-  "data",
-  "London_GLA_Boundary.geojson",
-);
-
-// Load the GLA boundary as an array of rings ([outerRing, ...holes]), each a
-// list of [lon, lat] pairs.
-function loadGlaPolygon() {
-  const geojson = JSON.parse(fs.readFileSync(GLA_BOUNDARY_PATH, "utf-8"));
-  return geojson.features[0].geometry.coordinates;
-}
-
-// Ray-casting point-in-polygon test over a single GeoJSON ring.
-function pointInRing(lon, lat, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
-    const intersects =
-      yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
-
-// True when the point is inside the outer ring but not inside any hole.
-function pointInPolygon(lon, lat, rings) {
-  if (!pointInRing(lon, lat, rings[0])) return false;
-  for (let k = 1; k < rings.length; k++) {
-    if (pointInRing(lon, lat, rings[k])) return false;
-  }
-  return true;
-}
-
-function isInGreaterLondon(theater, glaPolygon) {
+// Precise Greater London test against the GLA boundary polygon. Reuses the
+// shared helper (scripts/common/geo-utils, re-exported by ./utils) so this
+// script uses the same boundary check as the rest of the pipeline.
+async function isInGreaterLondon(theater) {
   const coords = theater.coordinates;
   if (!coords) return false;
-  return pointInPolygon(coords.longitude, coords.latitude, glaPolygon);
+  return isInLondon(coords.latitude, coords.longitude);
 }
 
 // ---------------------------------------------------------------------------
@@ -327,10 +296,11 @@ async function main() {
 
   // Filter precisely to the Greater London (GLA) boundary. Keep the raw node and
   // its mapped form paired so the schedule loop below stays in sync.
-  const glaPolygon = loadGlaPolygon();
-  const pairs = rawTheaters
-    .map((raw) => ({ raw, theater: mapTheater(raw) }))
-    .filter(({ theater }) => isInGreaterLondon(theater, glaPolygon));
+  const mapped = rawTheaters.map((raw) => ({ raw, theater: mapTheater(raw) }));
+  const insideFlags = await Promise.all(
+    mapped.map(({ theater }) => isInGreaterLondon(theater)),
+  );
+  const pairs = mapped.filter((_, i) => insideFlags[i]);
   const excludedCount = rawTheaters.length - pairs.length;
   console.log(
     `  ${pairs.length} within Greater London boundary (${excludedCount} outside, filtered out)`,
