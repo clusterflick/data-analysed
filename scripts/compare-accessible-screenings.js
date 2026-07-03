@@ -873,43 +873,72 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
     lines.push("");
   }
 
-  // CRITICAL: Unmatched UKCA theaters
-  if (unmatchedUkca.length > 0) {
+  // Unmatched UKCA theaters. Split by whether they have upcoming showtimes:
+  // entries with none are almost always stale/closed venues UKCA still lists
+  // (their own data shows them inactive), so they're informational. Entries WITH
+  // live showtimes are the genuinely actionable case — a new venue we should
+  // cover, or a matching failure — and shouldn't be buried among closed cinemas.
+  const hasUpcoming = ({ theater }) =>
+    theater.showtimesDates && theater.showtimesDates.length > 0;
+  const unmatchedLive = unmatchedUkca.filter(hasUpcoming);
+  const unmatchedClosed = unmatchedUkca.filter((u) => !hasUpcoming(u));
+
+  const renderUnmatchedTheater = ({ theater, nearest }, nameColor) => {
+    const hasDates =
+      theater.showtimesDates && theater.showtimesDates.length > 0;
+    const dateNote = hasDates
+      ? `${theater.showtimesDates.length} showtime dates`
+      : "no upcoming showtimes";
+    lines.push(`  ${nameColor}${theater.name}${c.reset} (${dateNote})`);
     lines.push(
-      `${c.bold}${c.red}Unmatched UKCA Theaters (${unmatchedUkca.length})${c.reset}`,
+      `    Location: ${theater.location?.city || "?"}, ${theater.location?.zip || "?"}`,
+    );
+    if (theater.coordinates) {
+      lines.push(
+        `    Coords: ${theater.coordinates.latitude}, ${theater.coordinates.longitude}`,
+      );
+    }
+    if (theater.url) {
+      lines.push(`    URL: ${theater.url}`);
+    }
+    if (nearest) {
+      lines.push(
+        `    ${c.dim}Nearest: ${nearest.venueId} (${nearest.dist.toFixed(2)}km)${c.reset}`,
+      );
+    }
+    lines.push("");
+  };
+
+  // Actionable: unmatched but with live showtimes.
+  if (unmatchedLive.length > 0) {
+    lines.push(
+      `${c.bold}${c.red}Unmatched UKCA Theaters with Live Showtimes (${unmatchedLive.length})${c.reset}`,
     );
     lines.push(
-      `${c.dim}These UKCA theaters could not be matched to any of our venues.${c.reset}`,
+      `${c.dim}These are active UKCA theaters we couldn't match to any of our venues.${c.reset}`,
     );
     lines.push(
       `${c.dim}They may represent new venue opportunities or matching failures.${c.reset}`,
     );
     lines.push("");
 
-    for (const { theater, nearest } of unmatchedUkca) {
-      const hasDates =
-        theater.showtimesDates && theater.showtimesDates.length > 0;
-      const dateNote = hasDates
-        ? `${theater.showtimesDates.length} showtime dates`
-        : "no upcoming showtimes";
-      lines.push(`  ${c.yellow}${theater.name}${c.reset} (${dateNote})`);
-      lines.push(
-        `    Location: ${theater.location?.city || "?"}, ${theater.location?.zip || "?"}`,
-      );
-      if (theater.coordinates) {
-        lines.push(
-          `    Coords: ${theater.coordinates.latitude}, ${theater.coordinates.longitude}`,
-        );
-      }
-      if (theater.url) {
-        lines.push(`    URL: ${theater.url}`);
-      }
-      if (nearest) {
-        lines.push(
-          `    ${c.dim}Nearest: ${nearest.venueId} (${nearest.dist.toFixed(2)}km)${c.reset}`,
-        );
-      }
-      lines.push("");
+    for (const entry of unmatchedLive) {
+      renderUnmatchedTheater(entry, c.yellow);
+    }
+  }
+
+  // Informational: unmatched with no showtimes — almost certainly closed/stale.
+  if (unmatchedClosed.length > 0) {
+    lines.push(
+      `${c.bold}${c.dim}Unmatched UKCA Theaters — Likely Closed (${unmatchedClosed.length})${c.reset}`,
+    );
+    lines.push(
+      `${c.dim}No upcoming showtimes in UKCA's own data — likely closed venues still listed (stale source data). Informational only.${c.reset}`,
+    );
+    lines.push("");
+
+    for (const entry of unmatchedClosed) {
+      renderUnmatchedTheater(entry, c.dim);
     }
   }
 
