@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
+const { toZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
@@ -1312,7 +1313,9 @@ async function main() {
       const vueOther = [];
 
       for (const mm of analysis.accessibilityMismatch) {
-        const hour = new Date(mm.ours.time).getUTCHours();
+        // Use London-local hour so the 10am carve-out holds year-round: in BST
+        // a 10am screening is stored as 09:00 UTC, so getUTCHours() would miss it.
+        const hour = toZonedTime(mm.ours.time, "Europe/London").getHours();
         const hasMissingRelaxed = mm.mismatches.some(
           (mis) =>
             mis.field === "relaxed" &&
