@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
-const { toZonedTime } = require("date-fns-tz");
+const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
@@ -345,7 +345,13 @@ function flattenUkcaShowtimes(showtimeData) {
       flat.push({
         movieTitle,
         startsAt: st.startsAt,
-        startsAtMs: new Date(st.startsAt.replace(" ", "T") + "Z").getTime(),
+        // UKCA startsAt is London wall-clock time (e.g. "2026-07-04 12:30:00"),
+        // not UTC. Interpret it in Europe/London so the epoch matches ours —
+        // appending "Z" would treat it as UTC and be an hour off during BST.
+        startsAtMs: fromZonedTime(
+          st.startsAt.replace(" ", "T"),
+          "Europe/London",
+        ).getTime(),
         tags: st.tags || [],
         bookingUrls,
       });
@@ -401,6 +407,12 @@ function extractPerfId(url) {
         if (k.toLowerCase() === key && v) return v;
       }
     }
+    // Fallback: some sites carry the performance ID as a trailing path segment
+    // rather than a query param (e.g. ActOne's /checkout/showing/<slug>/452296,
+    // where UKCA links to /checkout/showing/452296). Both share the numeric ID.
+    const segments = u.pathname.replace(/\/$/, "").split("/");
+    const last = segments[segments.length - 1];
+    if (/^\d+$/.test(last)) return last;
   } catch {
     // not a valid URL
   }
