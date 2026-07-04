@@ -51,8 +51,9 @@ const BST_OFFSET_MS = 3_600_000;
 // Known CG-only mismatches — screenings we deliberately don't include
 // ---------------------------------------------------------------------------
 
-// Titles matching these patterns are sports/live events we filter out of our
-// data. When they appear as CG-only they're expected, not a real gap.
+// Titles matching these patterns are sports/live events or private hires we
+// filter out of our data. When they appear as CG-only they're expected, not a
+// real gap.
 const KNOWN_MISMATCH_PATTERNS = [
   /\s+Cup Screening$/i,
   /\s+League Screening$/i,
@@ -62,6 +63,7 @@ const KNOWN_MISMATCH_PATTERNS = [
   /AFCON\s+/i,
   /GRAND PRIX:/i,
   /^\w+\s+FANPARK:/i,
+  /\bPrivate Hire\b/i,
 ];
 
 function isKnownMismatch(title) {
