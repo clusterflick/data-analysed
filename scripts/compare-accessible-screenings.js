@@ -3,6 +3,7 @@ const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
 const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
+const MANUAL_EXCLUSIONS = require("./accessibility-exclusions");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -805,6 +806,69 @@ async function verifyCineworldAdMismatches(mismatches, venueId) {
 }
 
 // ---------------------------------------------------------------------------
+// Manual exclusions
+// ---------------------------------------------------------------------------
+
+// Does this mismatch belong to a manually-reviewed exclusion for this venue?
+// Matches on performance ID extracted from either side's booking URL.
+function mismatchMatchesExclusion(venueId, mm, excl) {
+  if (excl.venueId !== venueId) return false;
+
+  const perfIds = [
+    mm.ours.bookingUrl ? extractPerfId(mm.ours.bookingUrl) : null,
+    ...mm.ukca.bookingUrls.map(extractPerfId),
+  ].filter(Boolean);
+
+  return excl.perfIds.some((id) => perfIds.includes(id));
+}
+
+// Strip mismatches covered by MANUAL_EXCLUSIONS out of the actionable set and
+// roll them into an informational count. Only "missing-in-ours" fields listed
+// in the exclusion (or all of them, if `fields` is omitted) are excused; any
+// other mismatch on the same performance is preserved so it stays actionable.
+function applyManualExclusions(analysis, venueId) {
+  const venueExclusions = MANUAL_EXCLUSIONS.filter(
+    (e) => e.venueId === venueId,
+  );
+  if (venueExclusions.length === 0) return;
+
+  const remaining = [];
+  let excludedCount = 0;
+
+  for (const mm of analysis.accessibilityMismatch) {
+    const excl = venueExclusions.find((e) =>
+      mismatchMatchesExclusion(venueId, mm, e),
+    );
+
+    if (!excl) {
+      remaining.push(mm);
+      continue;
+    }
+
+    const kept = mm.mismatches.filter((mis) => {
+      if (mis.type !== "missing-in-ours") return true; // only excuse gaps
+      if (!excl.fields) return false; // no fields listed → excuse all gaps
+      return !excl.fields.includes(mis.field);
+    });
+
+    if (kept.length === mm.mismatches.length) {
+      // Exclusion matched the performance but none of its fields — leave it.
+      remaining.push(mm);
+      continue;
+    }
+
+    excludedCount++;
+    if (kept.length > 0) remaining.push({ ...mm, mismatches: kept });
+  }
+
+  if (excludedCount > 0) {
+    analysis.manualExclusionCount =
+      (analysis.manualExclusionCount || 0) + excludedCount;
+    analysis.accessibilityMismatch = remaining;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report formatting
 // ---------------------------------------------------------------------------
 
@@ -1024,6 +1088,11 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.cineworldStaleCount} stale Cineworld listings removed`,
         );
       }
+      if (analysis.manualExclusionCount) {
+        infoParts.push(
+          `${analysis.manualExclusionCount} manually excluded (UKCA reviewed as incorrect)`,
+        );
+      }
       if (analysis.cineworldAdApiBlocked) {
         infoParts.push(
           `${c.yellow}${analysis.cineworldAdApiBlocked} Cineworld AD mismatches could not be verified (API blocked)${c.reset}`,
@@ -1132,6 +1201,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.cineworldAdApiBlocked} CW AD unverified`);
       if (analysis.cineworldStaleCount)
         notes.push(`${analysis.cineworldStaleCount} stale CW listings`);
+      if (analysis.manualExclusionCount)
+        notes.push(`${analysis.manualExclusionCount} manual exclusions`);
       const noteStr = notes.length
         ? ` ${c.dim}(${notes.join(", ")} ignored)${c.reset}`
         : "";
@@ -1271,6 +1342,20 @@ async function main() {
   console.log(`  Matched: ${venueMatchResult.matched.length}`);
   console.log(`  Unmatched UKCA: ${venueMatchResult.unmatchedUkca.length}`);
   console.log(`  Unmatched ours: ${venueMatchResult.unmatchedOurs.length}`);
+
+  // Fast-fail: zero matches means something is fundamentally wrong (empty or
+  // wrong transformed-data dir, geo lookups all failing, etc.) rather than a
+  // real accessibility finding. Bail loudly instead of "succeeding" at nothing.
+  if (venueMatchResult.matched.length === 0) {
+    console.error(
+      `\n${c.bold}${c.red}No venues matched.${c.reset} ` +
+        `Loaded ${Object.keys(transformedVenues).length} venue file(s) from "${transformedDir}" ` +
+        `against ${ukcaData.theaters.length} UKCA theater(s).\n` +
+        `This almost always means the transformed-data directory is empty or wrong ` +
+        `(e.g. pass "transformed-data/current", not "transformed-data").`,
+    );
+    process.exit(1);
+  }
 
   // Step 2: Analyse performances per matched venue (future only)
   const now = new Date();
@@ -1412,6 +1497,10 @@ async function main() {
         (analysis.extraOnlyCount || 0) + extraOnly.length;
       analysis.accessibilityMismatch = actionable;
     }
+
+    // Final carve-out: manually-reviewed cases where we've concluded UKCA is
+    // wrong. Runs last so it only ever acts on genuinely-actionable leftovers.
+    applyManualExclusions(analysis, m.venueId);
 
     venueAnalyses[m.venueId] = analysis;
   }
