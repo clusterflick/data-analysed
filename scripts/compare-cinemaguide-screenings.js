@@ -191,6 +191,19 @@ function isDuringBST(ms) {
   return ms >= bstStart.getTime() && ms < bstEnd.getTime();
 }
 
+// For venues where CG's times run 1 hour ahead during BST (see
+// BST_OFFSET_VENUES), return the corrected timestamp; otherwise return the
+// timestamp unchanged. Use this anywhere a CG time is compared against real
+// wall-clock time (e.g. the "already happened" cutoff) or displayed. Do NOT use
+// it to pre-mutate timeMs feeding matchScreenings — that pass applies the same
+// offset itself and would otherwise double-correct.
+function bstCorrectedMs(timeMs, venueId) {
+  if (BST_OFFSET_VENUES.has(venueId) && isDuringBST(timeMs)) {
+    return timeMs - BST_OFFSET_MS;
+  }
+  return timeMs;
+}
+
 // ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
@@ -787,7 +800,12 @@ function matchScreenings(cgFlat, ourFlat, venueId = "") {
 
 async function analyzeVenue(cgScreenings, ourShowings, now, venueId) {
   const nowMs = now.getTime();
-  const cgFlat = cgScreenings.filter((s) => s.timeMs >= nowMs);
+  // Apply the BST correction before the past cutoff: CG's raw time for BST-offset
+  // venues runs 1 hour ahead, so an already-finished screening still looks future
+  // and (with no matching entry left on our side) gets flagged as CG-only.
+  const cgFlat = cgScreenings.filter(
+    (s) => bstCorrectedMs(s.timeMs, venueId) >= nowMs,
+  );
   const ourFlat = flattenOurPerformances(ourShowings).filter(
     (p) => p.time >= nowMs,
   );
@@ -1091,7 +1109,9 @@ function formatReport(venueMatchResult, venueAnalyses, cgData) {
           `    ${c.red}CinemaGuide only (${analysis.cgOnlyCount}) — in their data, not ours:${c.reset}`,
         );
         for (const s of analysis.cgOnly.slice(0, 15)) {
-          lines.push(`      ${s.filmTitle} @ ${formatTime(s.timeMs)}`);
+          lines.push(
+            `      ${s.filmTitle} @ ${formatTime(bstCorrectedMs(s.timeMs, m.venueId))}`,
+          );
           if (s.link) lines.push(`        ${c.dim}${s.link}${c.reset}`);
         }
         if (analysis.cgOnlyCount > 15) {
@@ -1180,7 +1200,7 @@ function formatReport(venueMatchResult, venueAnalyses, cgData) {
           );
           for (const s of analysis.cgOnlyStale) {
             lines.push(
-              `      ${c.dim}${s.filmTitle} @ ${formatTime(s.timeMs)}${c.reset}`,
+              `      ${c.dim}${s.filmTitle} @ ${formatTime(bstCorrectedMs(s.timeMs, m.venueId))}${c.reset}`,
             );
             if (s.link) lines.push(`        ${c.dim}${s.link}${c.reset}`);
           }
