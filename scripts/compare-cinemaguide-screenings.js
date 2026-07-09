@@ -64,6 +64,9 @@ const KNOWN_MISMATCH_PATTERNS = [
   /GRAND PRIX:/i,
   /^\w+\s+FANPARK:/i,
   /\bPrivate Hire\b/i,
+  /World Cup/i,
+  /England vs/i,
+  /vs England/i,
 ];
 
 function isKnownMismatch(title) {
