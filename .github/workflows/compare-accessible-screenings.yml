@@ -22,8 +22,26 @@ jobs:
         with:
           node-version-file: .node-version
       - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
-      - uses: clusterflick/release-downloader@v3
+
+      # Skip if there's nothing new: if the latest data-transformed release is
+      # more than an hour old there's no fresh data to compare against. A manual
+      # "Run workflow" (workflow_dispatch) bypasses the check and always runs.
+      - name: Check transformed data freshness
+        id: freshness
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — bypassing freshness check."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/check-release-freshness.js >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.freshness.outputs.should_run == 'true'
+        run: npm install
+      - if: steps.freshness.outputs.should_run == 'true'
+        uses: clusterflick/release-downloader@v3
         with:
           token: ${{ secrets.PAT }}
           repository: "clusterflick/data-transformed"
@@ -32,13 +50,24 @@ jobs:
           out-file-path: "transformed-data"
 
       - name: Download UKCA data
+        if: steps.freshness.outputs.should_run == 'true'
         run: npm run download:accessible-screenings
 
       - name: Compare accessible screenings
+        if: steps.freshness.outputs.should_run == 'true'
         run: npm run compare:accessible-screenings -- accessible-screenings-data/ukca-data.json transformed-data
 
+      # Publish the badge even when the comparison found mismatches (exit 1), but
+      # not when the run was skipped as stale (which leaves the previous badge).
+      - name: Publish badge
+        if: always() && steps.freshness.outputs.should_run == 'true'
+        env:
+          GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: node scripts/publish-badge.js compare-accessible-screenings.json
+
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && steps.freshness.outputs.should_run == 'true'
         with:
           name: accessible-screenings-report
           path: output/

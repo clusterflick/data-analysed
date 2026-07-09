@@ -3,6 +3,7 @@ const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
 const { getAttributesFor } = require("./utils");
 const { isKnownMismatch } = require("./common/known-mismatches");
+const { writeBadge } = require("./common/badge");
 const {
   verifyCineworldListing,
   verifyNickelListing,
@@ -1284,10 +1285,22 @@ async function main() {
   const report = formatReport(venueMatchResult, venueAnalyses, cgData);
   console.log(report);
 
-  const hasMismatches = Object.values(venueAnalyses).some(
-    (a) => a.cgOnlyCount > 0,
-  );
-  if (hasMismatches) {
+  // Findings (shared by the badge and the exit code so they can never disagree).
+  // A finding here is a screening CinemaGuide lists that we don't have.
+  const cgOnlyCounts = Object.values(venueAnalyses).map((a) => a.cgOnlyCount);
+  const totalCgOnly = cgOnlyCounts.reduce((n, c) => n + c, 0);
+  const venuesAffected = cgOnlyCounts.filter((c) => c > 0).length;
+  const maxPerVenue = cgOnlyCounts.reduce((m, c) => Math.max(m, c), 0);
+
+  writeBadge("compare-cinemaguide-screenings.json", {
+    label: "Compare CinemaGuide Screenings",
+    total: totalCgOnly,
+    venuesAffected,
+    maxPerVenue,
+    unit: "missing screening",
+  });
+
+  if (totalCgOnly > 0) {
     process.exitCode = 1;
   }
 }

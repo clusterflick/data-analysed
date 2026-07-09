@@ -5,6 +5,7 @@ const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
 const MANUAL_EXCLUSIONS = require("./accessibility-exclusions");
 const { isKnownMismatch } = require("./common/known-mismatches");
+const { writeBadge } = require("./common/badge");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -1559,17 +1560,30 @@ async function main() {
 
   writeJsonLog(venueMatchResult, venueAnalyses, ukcaData);
 
-  // Exit code based on findings
-  const hasCritical =
-    venueMatchResult.unmatchedUkca.filter(
-      (u) => u.theater.showtimesDates && u.theater.showtimesDates.length > 0,
-    ).length > 0;
+  // Findings (shared by the badge and the exit code so they can never disagree).
+  // Critical: a UKCA theatre we failed to match that still has showtimes — a
+  // venue we appear to be missing entirely.
+  const criticalCount = venueMatchResult.unmatchedUkca.filter(
+    (u) => u.theater.showtimesDates && u.theater.showtimesDates.length > 0,
+  ).length;
 
-  const hasMismatches = Object.values(venueAnalyses).some(
-    (a) => a.accessibilityMismatch.length > 0,
+  const mismatchCounts = Object.values(venueAnalyses).map(
+    (a) => a.accessibilityMismatch.length,
   );
+  const totalMismatches = mismatchCounts.reduce((n, c) => n + c, 0);
+  const venuesAffected = mismatchCounts.filter((c) => c > 0).length;
+  const maxPerVenue = mismatchCounts.reduce((m, c) => Math.max(m, c), 0);
 
-  if (hasCritical || hasMismatches) {
+  writeBadge("compare-accessible-screenings.json", {
+    label: "Compare Accessible Screenings",
+    total: totalMismatches,
+    venuesAffected,
+    maxPerVenue,
+    critical: criticalCount,
+  });
+
+  // Exit code based on findings
+  if (criticalCount > 0 || totalMismatches > 0) {
     process.exitCode = 1;
   }
 }
