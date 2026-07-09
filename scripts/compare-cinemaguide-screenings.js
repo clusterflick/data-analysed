@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
 const { getAttributesFor } = require("./utils");
+const { isKnownMismatch } = require("./common/known-mismatches");
 const {
   verifyCineworldListing,
   verifyNickelListing,
@@ -51,27 +52,9 @@ const BST_OFFSET_MS = 3_600_000;
 // Known CG-only mismatches — screenings we deliberately don't include
 // ---------------------------------------------------------------------------
 
-// Titles matching these patterns are sports/live events or private hires we
-// filter out of our data. When they appear as CG-only they're expected, not a
-// real gap.
-const KNOWN_MISMATCH_PATTERNS = [
-  /\s+Cup Screening$/i,
-  /\s+League Screening$/i,
-  /Union Jack Classic/i,
-  /Super Bowl/i,
-  /Six Nations/i,
-  /AFCON\s+/i,
-  /GRAND PRIX:/i,
-  /^\w+\s+FANPARK:/i,
-  /\bPrivate Hire\b/i,
-  /World Cup/i,
-  /England vs/i,
-  /vs England/i,
-];
-
-function isKnownMismatch(title) {
-  return KNOWN_MISMATCH_PATTERNS.some((re) => re.test(title));
-}
+// Sports/live events and private hires we filter out of our data. When they
+// appear as CG-only they're expected, not a real gap. Shared with
+// compare-accessible-screenings.js — see common/known-mismatches.js.
 
 // Venue-specific CG data quality artifacts — parser failures that produce
 // screenings we should ignore rather than treat as real gaps.

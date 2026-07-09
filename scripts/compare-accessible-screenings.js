@@ -4,6 +4,7 @@ const { remove: removeDiacritics } = require("diacritics");
 const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
 const MANUAL_EXCLUSIONS = require("./accessibility-exclusions");
+const { isKnownMismatch } = require("./common/known-mismatches");
 
 const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -639,10 +640,17 @@ function analyzeVenue(ukcaShowtimeData, ourShowings, now) {
     }
   }
 
-  // UKCA-only accessible performances (ones we don't have at all)
-  const ukcaOnlyAccessible = ukcaOnly.filter((u) =>
+  // UKCA-only accessible performances (ones we don't have at all). Sports/live
+  // events and private hires we deliberately strip out are expected gaps, not
+  // real ones — separate them into an informational count.
+  const ukcaOnlyAccessibleAll = ukcaOnly.filter((u) =>
     hasAccessibilityTags(u.tags),
   );
+  const ukcaOnlyAccessible = ukcaOnlyAccessibleAll.filter(
+    (u) => !isKnownMismatch(u.movieTitle),
+  );
+  const knownMismatchCount =
+    ukcaOnlyAccessibleAll.length - ukcaOnlyAccessible.length;
 
   return {
     totalUkca: ukcaFlat.length,
@@ -653,6 +661,7 @@ function analyzeVenue(ukcaShowtimeData, ourShowings, now) {
     accessibilityConsistent: accessibilityConsistent.length,
     accessibilityMismatch,
     ukcaOnlyAccessible,
+    knownMismatchCount,
     unknownTags: [...allUnknownTags],
   };
 }
@@ -1093,6 +1102,11 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
           `${analysis.manualExclusionCount} manually excluded (UKCA reviewed as incorrect)`,
         );
       }
+      if (analysis.knownMismatchCount) {
+        infoParts.push(
+          `${analysis.knownMismatchCount} sports/live events we strip out (expected gaps)`,
+        );
+      }
       if (analysis.cineworldAdApiBlocked) {
         infoParts.push(
           `${c.yellow}${analysis.cineworldAdApiBlocked} Cineworld AD mismatches could not be verified (API blocked)${c.reset}`,
@@ -1203,6 +1217,8 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         notes.push(`${analysis.cineworldStaleCount} stale CW listings`);
       if (analysis.manualExclusionCount)
         notes.push(`${analysis.manualExclusionCount} manual exclusions`);
+      if (analysis.knownMismatchCount)
+        notes.push(`${analysis.knownMismatchCount} sports/live events`);
       const noteStr = notes.length
         ? ` ${c.dim}(${notes.join(", ")} ignored)${c.reset}`
         : "";
