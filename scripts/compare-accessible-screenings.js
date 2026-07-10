@@ -1085,7 +1085,7 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
       }
       if (analysis.vueBabyAutismCount) {
         infoParts.push(
-          `${analysis.vueBabyAutismCount} Vue 10am babyFriendly vs AutismFriendly (UKCA wrong)`,
+          `${analysis.vueBabyAutismCount} Vue morning babyFriendly vs AutismFriendly (UKCA wrong)`,
         );
       }
       if (analysis.cineworldStaleAdCount) {
@@ -1446,9 +1446,12 @@ async function main() {
       }
     }
 
-    // Vue 10am screenings: UKCA tags as AutismFriendly, we tag as babyFriendly.
-    // These are the same morning screenings — Vue calls them "Mini Mornings" (baby
+    // Vue morning screenings: UKCA tags as AutismFriendly, we tag as babyFriendly.
+    // These are the same morning screenings — Vue calls them "Mighty Mornings" (baby
     // friendly), UKCA categorises them as autism friendly. Roll up as info.
+    // The Mighty Mornings slot is nominally 10am but individual screenings drift
+    // (e.g. 09:45, 09:55), so allow a ±15 min window around 10:00 rather than an
+    // exact hour match.
     // NOTE: this runs before the extra-only filter so that leftover babyFriendly-only
     // entries (after stripping relaxed) are caught by the extra-only pass below.
     if (m.venueId.startsWith("myvue.com")) {
@@ -1456,9 +1459,11 @@ async function main() {
       const vueOther = [];
 
       for (const mm of analysis.accessibilityMismatch) {
-        // Use London-local hour so the 10am carve-out holds year-round: in BST
+        // Use London-local time so the morning carve-out holds year-round: in BST
         // a 10am screening is stored as 09:00 UTC, so getUTCHours() would miss it.
-        const hour = toZonedTime(mm.ours.time, "Europe/London").getHours();
+        const local = toZonedTime(mm.ours.time, "Europe/London");
+        const minutesFromMidnight = local.getHours() * 60 + local.getMinutes();
+        const isMorningSlot = Math.abs(minutesFromMidnight - 600) <= 15; // 09:45–10:15
         const hasMissingRelaxed = mm.mismatches.some(
           (mis) =>
             mis.field === "relaxed" &&
@@ -1466,7 +1471,7 @@ async function main() {
             mis.ukcaTag === "AutismFriendly",
         );
 
-        if (hour === 10 && hasMissingRelaxed) {
+        if (isMorningSlot && hasMissingRelaxed) {
           // Remove the relaxed mismatch; keep any other mismatches
           const remaining = mm.mismatches.filter(
             (mis) =>

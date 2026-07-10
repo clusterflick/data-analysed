@@ -38,6 +38,15 @@ module.exports = [
       "across the whole film's run. Reviewed 2026-07-05.",
   },
   {
+    venueId: "barbican.org.uk",
+    perfIds: ["3628401"],
+    fields: ["audioDescription"],
+    reason:
+      "Rosebush Pruning — no AD tag on the Barbican site for this performance; " +
+      "UKCA appears to have applied AudioDescription across the whole film's " +
+      "run even though not all performances have it. Reviewed 2026-07-10.",
+  },
+  {
     venueId: "thecastlecinema.com",
     // The Invite. — all upcoming showtimes except the genuine HOH-subtitles
     // screening (Mon 6 Jul 16:00, id 17124, which we already carry correctly).
