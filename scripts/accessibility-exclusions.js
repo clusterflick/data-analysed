@@ -74,4 +74,25 @@ module.exports = [
       "only the one HOH-subtitles screening (Mon 6 Jul 16:00, id 17124) as " +
       "captioned, which we already carry. Reviewed 2026-07-05.",
   },
+  {
+    venueId: "thecastlecinema.com",
+    perfIds: [
+      "17200",
+      "17203",
+      "17209",
+      "17214",
+      "17219",
+      "17225",
+      "17230",
+      "17234",
+      "17241",
+      "17243",
+    ],
+    fields: ["subtitled"],
+    reason:
+      "Rosebush Pruning — UKCA tags every one of the film's showtimes Subtitled " +
+      "(matching the film-level accessibility badge), but the Castle site does " +
+      "not mark these performances as captioned. Same failure mode as the Castle " +
+      "'The Invite.' subtitle exclusion above. Reviewed 2026-07-11.",
+  },
 ];
