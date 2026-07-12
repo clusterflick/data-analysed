@@ -13,14 +13,7 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
+      - uses: clusterflick/.github/setup@main
       - run: node scripts/check-cineworld-ids.js
 
   check_curzon:
@@ -29,15 +22,9 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
+      - uses: clusterflick/.github/setup@main
         with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
-      - run: npx playwright install --with-deps
+          playwright: true
       - run: node scripts/check-curzon-ids.js
 
   check_everyman:
@@ -46,14 +33,7 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
+      - uses: clusterflick/.github/setup@main
       - run: node scripts/check-everyman-ids.js
 
   check_myvue:
@@ -62,14 +42,7 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
+      - uses: clusterflick/.github/setup@main
       - run: node scripts/check-myvue-ids.js
 
   check_odeon:
@@ -78,15 +51,9 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
+      - uses: clusterflick/.github/setup@main
         with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
-      - run: npx playwright install --with-deps
+          playwright: true
       - run: node scripts/check-odeon-ids.js
 
   check_omniplex:
@@ -95,14 +62,7 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
+      - uses: clusterflick/.github/setup@main
       - run: node scripts/check-omniplex-ids.js
 
   check_picturehouse:
@@ -111,13 +71,7 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: actions/checkout@v6
+      - uses: clusterflick/.github/setup@main
         with:
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - uses: clusterflick/.github/setup-cache-paths@main
-      - run: npm install
-      - run: npx playwright install --with-deps
+          playwright: true
       - run: node scripts/check-picturehouse-ids.js
