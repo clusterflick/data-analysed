@@ -410,12 +410,17 @@ function extractPerfId(url) {
         if (k.toLowerCase() === key && v) return v;
       }
     }
-    // Fallback: some sites carry the performance ID as a trailing path segment
-    // rather than a query param (e.g. ActOne's /checkout/showing/<slug>/452296,
-    // where UKCA links to /checkout/showing/452296). Both share the numeric ID.
+    // Fallback: some sites carry the performance ID as a path segment rather
+    // than a query param. Usually it's the trailing segment (e.g. ActOne's
+    // /checkout/showing/<slug>/452296, matching UKCA's .../452296), but some
+    // sites append an action segment after it — Picturehouses booking links are
+    // /order/showtimes/016-19007/seats, where 016-19007 (cinemaId-sessionId) is
+    // the stable ID. Scan the last two segments and take the first that looks
+    // like a numeric performance ID (optionally a single hyphenated pair).
     const segments = u.pathname.replace(/\/$/, "").split("/");
-    const last = segments[segments.length - 1];
-    if (/^\d+$/.test(last)) return last;
+    for (const seg of segments.slice(-2).reverse()) {
+      if (/^\d+(-\d+)?$/.test(seg)) return seg;
+    }
   } catch {
     // not a valid URL
   }

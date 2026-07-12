@@ -95,4 +95,15 @@ module.exports = [
       "not mark these performances as captioned. Same failure mode as the Castle " +
       "'The Invite.' subtitle exclusion above. Reviewed 2026-07-11.",
   },
+  {
+    venueId: "picturehouses.com-the-gate",
+    perfIds: ["016-19007"],
+    fields: ["hardOfHearing"],
+    reason:
+      "The Furious (Tue 14 Jul 15:20) — UKCA tags this performance ClosedCaption " +
+      "(→ hardOfHearing), but the Picturehouses site does not mark it as a " +
+      "captioned/HOH screening. UKCA appears to have applied the caption tag " +
+      "across the film's run rather than the individual performance. " +
+      "Reviewed 2026-07-12.",
+  },
 ];
