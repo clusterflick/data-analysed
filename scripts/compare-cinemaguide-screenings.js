@@ -39,6 +39,7 @@ const TIME_TOLERANCE_MS = 15 * 60 * 1000; // 15 minutes
 const BST_OFFSET_VENUES = new Set([
   "barbican.org.uk",
   "forestcinema.co.uk",
+  "genesiscinema.co.uk",
   "arthousecrouchend.co.uk",
   "olympiccinema.com",
   "peckhamplex.london",
