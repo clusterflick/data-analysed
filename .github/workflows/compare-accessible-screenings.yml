@@ -23,13 +23,14 @@ jobs:
           node-version-file: .node-version
       - uses: clusterflick/.github/setup-cache-paths@main
 
-      # Skip if there's nothing new: if the latest data-transformed release is
+      # Skip if there's nothing new: if the latest data-retrieved release is
       # more than an hour old there's no fresh data to compare against. A manual
       # "Run workflow" (workflow_dispatch) bypasses the check and always runs.
-      - name: Check transformed data freshness
+      - name: Check retrieved data freshness
         id: freshness
         env:
           GH_TOKEN: ${{ secrets.PAT }}
+          RELEASE_REPO: "clusterflick/data-retrieved"
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "Manual dispatch — bypassing freshness check."

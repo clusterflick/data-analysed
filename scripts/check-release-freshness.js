@@ -1,8 +1,9 @@
 // Freshness gate for the compare workflows.
 //
-// The compare-* workflows are triggered when clusterflick/data-transformed cuts
-// a release. If the latest release is older than the threshold there's nothing
-// new to compare against, so we skip the (slow) download + compare rather than
+// The compare-* workflows gate on the freshness of the source data being
+// compared — the clusterflick/data-retrieved release (set via RELEASE_REPO).
+// If the latest release is older than the threshold there's nothing new to
+// compare against, so we skip the (slow) download + compare rather than
 // re-running against stale data.
 //
 // Prints a single `should_run=true|false` line to stdout (append to
@@ -14,7 +15,7 @@
 // Uses only the built-in fetch (Node 18+); no npm deps, so it can run before
 // `npm install`.
 
-const REPO = process.env.RELEASE_REPO || "clusterflick/data-transformed";
+const REPO = process.env.RELEASE_REPO || "clusterflick/data-retrieved";
 const MAX_AGE_MS = Number(process.env.MAX_AGE_MS || 60 * 60 * 1000); // 1 hour
 const TOKEN =
   process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.PAT;
