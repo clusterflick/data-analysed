@@ -46,6 +46,7 @@ const BST_OFFSET_VENUES = new Set([
   "thegardencinema.co.uk",
   "electriccinema.co.uk-white-city",
   "electriccinema.co.uk-portobello",
+  "thenickel.co.uk",
 ]);
 
 const BST_OFFSET_MS = 3_600_000;
