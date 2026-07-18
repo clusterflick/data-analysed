@@ -3,6 +3,7 @@ const path = require("path");
 const { remove: removeDiacritics } = require("diacritics");
 const { toZonedTime, fromZonedTime } = require("date-fns-tz");
 const { getAttributesFor } = require("./utils");
+const normalizeTitle = require("scripts/common/normalize-title");
 const MANUAL_EXCLUSIONS = require("./accessibility-exclusions");
 const { isKnownMismatch } = require("./common/known-mismatches");
 const { writeBadge } = require("./common/badge");
@@ -400,7 +401,7 @@ function normalizeUrl(url) {
 
 // Extract a performance ID from a booking URL using common query parameters.
 // Returns null if no recognisable ID parameter is found.
-const PERF_ID_PARAMS = ["id", "perfcode", "showtimeid", "eid"];
+const PERF_ID_PARAMS = ["id", "perfcode", "showtimeid", "eid", "eventinstanceid"];
 
 function extractPerfId(url) {
   try {
@@ -443,6 +444,12 @@ function matchPerformances(ukcaFlat, ourFlat) {
   // Build performance ID lookup for our performances
   const ourPerfIds = ourFlat.map((o) =>
     o.bookingUrl ? extractPerfId(o.bookingUrl) : null,
+  );
+
+  // Build fully-normalized title lookup for our performances (used by the
+  // normalized-title stage below).
+  const ourNormTitles = ourFlat.map((o) =>
+    o.showingTitle ? normalizeTitle(o.showingTitle) : "",
   );
 
   // Primary: match by booking URL (normalized)
@@ -549,6 +556,59 @@ function matchPerformances(ukcaFlat, ourFlat) {
         ukca,
         ours: ourFlat[bestOurIdx],
         matchMethod: "time",
+      });
+    }
+  }
+
+  // Quaternary: match by fully-normalized title + time within tolerance.
+  // The tertiary stage's word-set similarity can dip below its 0.3 threshold
+  // when the same film carries different qualifiers on each side (e.g. UKCA's
+  // "Amores Perros (Love's A Bitch)" vs our "Amores Perros: 4K Restoration",
+  // which share only two words). Running the pipeline's own normalizeTitle over
+  // both sides collapses those qualifiers to a canonical title, so a genuine
+  // match survives. Same guards as the tertiary stage: perf IDs must not
+  // conflict, and time must be within tolerance; ambiguous ties broken on time.
+  for (let ui = 0; ui < ukcaFlat.length; ui++) {
+    if (usedUkcaIdx.has(ui)) continue;
+    const ukca = ukcaFlat[ui];
+
+    const ukcaNormTitle = normalizeTitle(ukca.movieTitle);
+    if (!ukcaNormTitle) continue;
+
+    const ukcaPerfIds = ukca.bookingUrls.map(extractPerfId).filter(Boolean);
+
+    let bestOurIdx = -1;
+    let bestDelta = Infinity;
+
+    for (let oi = 0; oi < ourFlat.length; oi++) {
+      if (usedOurIdx.has(oi)) continue;
+      if (!ourNormTitles[oi] || ourNormTitles[oi] !== ukcaNormTitle) continue;
+
+      // If both sides have a perf ID and they don't match, skip
+      if (
+        ukcaPerfIds.length > 0 &&
+        ourPerfIds[oi] &&
+        !ukcaPerfIds.includes(ourPerfIds[oi])
+      ) {
+        continue;
+      }
+
+      const delta = Math.abs(ukca.startsAtMs - ourFlat[oi].time);
+      if (delta > TIME_TOLERANCE_MS) continue;
+
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestOurIdx = oi;
+      }
+    }
+
+    if (bestOurIdx >= 0) {
+      usedUkcaIdx.add(ui);
+      usedOurIdx.add(bestOurIdx);
+      matchedPerfs.push({
+        ukca,
+        ours: ourFlat[bestOurIdx],
+        matchMethod: "normalizedTitle",
       });
     }
   }
