@@ -20,13 +20,17 @@ jobs:
       - name: Get release tags
         id: tags
         run: |
-          CURRENT=$(gh api repos/clusterflick/data-transformed/releases?per_page=10 \
-            --jq 'sort_by(.published_at) | reverse | .[0].tag_name')
-          PREVIOUS=$(gh api repos/clusterflick/data-transformed/releases?per_page=10 \
-            --jq 'sort_by(.published_at) | reverse | .[1].tag_name')
+          RELEASES=$(gh api repos/clusterflick/data-transformed/releases?per_page=10 \
+            --jq 'sort_by(.published_at) | reverse')
+          CURRENT=$(echo "$RELEASES" | jq -r '.[0].tag_name')
+          PREVIOUS=$(echo "$RELEASES" | jq -r '.[1].tag_name')
+          # The comparison is anchored to when the current release was published
+          # rather than to the wall clock, so a re-run agrees with the first run
+          CURRENT_PUBLISHED_AT=$(echo "$RELEASES" | jq -r '.[0].published_at')
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
-          echo "Current: $CURRENT, Previous: $PREVIOUS"
+          echo "current_published_at=$CURRENT_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT ($CURRENT_PUBLISHED_AT), Previous: $PREVIOUS"
         env:
           GH_TOKEN: ${{ secrets.PAT }}
 
@@ -48,7 +52,7 @@ jobs:
           fileName: "*"
           out-file-path: "transformed-data/previous"
 
-      - run: npm run compare:releases -- transformed-data/current transformed-data/previous ${{ steps.tags.outputs.current }} ${{ steps.tags.outputs.previous }}
+      - run: npm run compare:releases -- transformed-data/current transformed-data/previous ${{ steps.tags.outputs.current }} ${{ steps.tags.outputs.previous }} ${{ steps.tags.outputs.current_published_at }}
 
       - uses: actions/upload-artifact@v7
         if: always()

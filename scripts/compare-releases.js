@@ -470,12 +470,21 @@ async function compareReleases(
   previousDir,
   currentTag,
   previousTag,
+  currentPublishedAt,
 ) {
+  const asOf = Date.parse(currentPublishedAt);
+  if (Number.isNaN(asOf)) {
+    throw new Error(
+      `Could not parse published_at for the current release: ${currentPublishedAt}`,
+    );
+  }
+
   const { metadata, summary, venues } = await diffReleases({
     currentDir,
     previousDir,
     currentTag,
     previousTag,
+    asOf,
   });
 
   const allVenueDiffs = addConcernLevels(venues);
@@ -496,19 +505,29 @@ async function compareReleases(
   }
 }
 
-const [currentDir, previousDir, currentTag, previousTag] =
+const [currentDir, previousDir, currentTag, previousTag, currentPublishedAt] =
   process.argv.slice(2);
 
-if (!currentDir || !previousDir || !currentTag || !previousTag) {
+if (
+  !currentDir ||
+  !previousDir ||
+  !currentTag ||
+  !previousTag ||
+  !currentPublishedAt
+) {
   console.error(
-    "Usage: compare-releases.js <current-dir> <previous-dir> <current-tag> <previous-tag>",
+    "Usage: compare-releases.js <current-dir> <previous-dir> <current-tag> <previous-tag> <current-published-at>",
   );
   process.exit(1);
 }
 
-compareReleases(currentDir, previousDir, currentTag, previousTag).catch(
-  (error) => {
-    console.error(`\n❌ ${error.stack || error.message || error}`);
-    process.exit(1);
-  },
-);
+compareReleases(
+  currentDir,
+  previousDir,
+  currentTag,
+  previousTag,
+  currentPublishedAt,
+).catch((error) => {
+  console.error(`\n❌ ${error.stack || error.message || error}`);
+  process.exit(1);
+});

@@ -12,8 +12,11 @@ RELEASES=$(curl "${CURL_HEADERS[@]}" "$REPO_URL?per_page=2")
 
 CURRENT_TAG=$(echo "$RELEASES" | jq -r '.[0].tag_name')
 PREVIOUS_TAG=$(echo "$RELEASES" | jq -r '.[1].tag_name')
+# The comparison is anchored to when the current release was published rather
+# than to the wall clock, so re-running it later gives the same answer
+CURRENT_PUBLISHED_AT=$(echo "$RELEASES" | jq -r '.[0].published_at')
 
-echo "Current:  $CURRENT_TAG"
+echo "Current:  $CURRENT_TAG ($CURRENT_PUBLISHED_AT)"
 echo "Previous: $PREVIOUS_TAG"
 
 for TAG in "$CURRENT_TAG" "$PREVIOUS_TAG"; do
@@ -33,4 +36,4 @@ done
 
 echo ""
 echo "Done. Run the comparison with:"
-echo "  npm run compare:releases -- ./transformed-data/current ./transformed-data/previous $CURRENT_TAG $PREVIOUS_TAG"
+echo "  npm run compare:releases -- ./transformed-data/current ./transformed-data/previous $CURRENT_TAG $PREVIOUS_TAG $CURRENT_PUBLISHED_AT"
