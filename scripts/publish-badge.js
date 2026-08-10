@@ -1,11 +1,13 @@
-// Publishes a badge JSON file (written by common/badge.js into output/) to the
+// Publishes badge JSON files (written by common/badge.js into output/) to the
 // shared gist that the README shields.io endpoint badges read from.
 //
-// Usage:   node scripts/publish-badge.js <filename>
+// Usage:   node scripts/publish-badge.js <filename> [...more filenames]
 // Example: node scripts/publish-badge.js compare-accessible-screenings.json
 //
-// <filename> is used both as the local file under output/ and as the target
-// file name within the gist (they're kept identical on purpose).
+// Each <filename> is used both as the local file under output/ and as the
+// target file name within the gist (they're kept identical on purpose).
+// Several files go up in a single PATCH so a workflow publishing a set of
+// badges can't leave the gist half-updated.
 //
 // Env:
 //   GIST_ID     — the gist to update
@@ -18,22 +20,25 @@
 const fs = require("fs");
 const path = require("path");
 
-const filename = process.argv[2];
+const filenames = process.argv.slice(2);
 const GIST_ID = process.env.GIST_ID;
 const GIST_TOKEN = process.env.GIST_TOKEN;
 
 async function main() {
-  if (!filename) {
-    throw new Error("Usage: publish-badge.js <filename>");
+  if (filenames.length === 0) {
+    throw new Error("Usage: publish-badge.js <filename> [...more filenames]");
   }
   if (!GIST_ID) throw new Error("GIST_ID is not set");
   if (!GIST_TOKEN) throw new Error("GIST_TOKEN is not set");
 
-  const localPath = path.join(__dirname, "..", "output", filename);
-  if (!fs.existsSync(localPath)) {
-    throw new Error(`Badge file not found: ${localPath}`);
+  const files = {};
+  for (const filename of filenames) {
+    const localPath = path.join(__dirname, "..", "output", filename);
+    if (!fs.existsSync(localPath)) {
+      throw new Error(`Badge file not found: ${localPath}`);
+    }
+    files[filename] = { content: fs.readFileSync(localPath, "utf8") };
   }
-  const content = fs.readFileSync(localPath, "utf8");
 
   const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
     method: "PATCH",
@@ -44,7 +49,7 @@ async function main() {
       "User-Agent": "clusterflick-data-analysed",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ files: { [filename]: { content } } }),
+    body: JSON.stringify({ files }),
   });
 
   if (!res.ok) {
@@ -54,7 +59,7 @@ async function main() {
     );
   }
 
-  console.log(`Published ${filename} to gist ${GIST_ID}`);
+  console.log(`Published ${filenames.join(", ")} to gist ${GIST_ID}`);
 }
 
 main().catch((err) => {

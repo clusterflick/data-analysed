@@ -65,14 +65,21 @@ function writeBadge(filename, figures) {
   }
   const message = parts.length > 0 ? parts.join(", ") : "all matching";
 
-  const badge = { schemaVersion: 1, label, message, color: colour };
+  return writeBadgeFile(filename, { label, message, color: colour });
+}
+
+// Writes an already-decided badge to output/. Use this directly when the
+// message and colour don't come from venue finding counts (writeBadge above is
+// the wrapper for that shape).
+function writeBadgeFile(filename, { label, message, color }) {
+  const badge = { schemaVersion: 1, label, message, color };
 
   const outputDir = path.join(__dirname, "..", "..", "output");
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, filename);
   fs.writeFileSync(outputPath, JSON.stringify(badge, null, 2));
-  console.log(`Badge written to ${outputPath} (${colour}: "${message}")`);
+  console.log(`Badge written to ${outputPath} (${color}: "${message}")`);
   return outputPath;
 }
 
-module.exports = { writeBadge };
+module.exports = { writeBadge, writeBadgeFile };

@@ -1,0 +1,44 @@
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [workflow_run_stats]
+
+name: Pipeline Run Stats
+
+permissions:
+  contents: read
+
+jobs:
+  stats:
+    name: Pipeline Run Stats
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # No `npm install` — the stats script only uses the built-in fetch, so
+      # this stays a couple of API calls rather than a dependency install.
+      - name: Calculate run stats
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: npm run stats:workflow-runs
+
+      # The run that dispatched this is still in progress (the dispatch is sent
+      # from data-transformed's create_release job), so it lands in the next
+      # window rather than this one. Immaterial over 30 days.
+      - name: Publish badges
+        env:
+          GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          node scripts/publish-badge.js \
+            retrieve-unassisted.json \
+            retrieve-duration.json \
+            transform-unassisted.json \
+            transform-duration.json
