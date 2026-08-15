@@ -68,6 +68,38 @@ npm run discover:outsavvy        # Discover venues from Outsavvy
 npm run discover:ticketsource    # Discover venues from TicketSource
 ```
 
+### Venue Name Mismatches
+
+Venue matching needs both the name and the location to agree, so a venue we
+already know about is dropped whenever a platform lists it under a name we
+don't hold. This script runs every source's venue discovery and reports the
+venues that were rejected on name alone — they sit at a known cinema, but none
+of that cinema's names match:
+
+```bash
+npm run find:venue-name-mismatches                    # All sources
+npm run find:venue-name-mismatches -- eventbrite.co.uk  # One source
+```
+
+Each result is labelled with the fix it points at: `🔤` where the two names
+overlap once normalised (a trailing screen number, a parenthetical, a borough
+suffix), which `scripts/common/normalize-venue-name.js` could absorb, and `➕`
+where the names are unrelated and the venue needs an entry in the cinema's
+`alternativeNames`.
+
+Options:
+
+- `--max-distance=<km>` — how close a venue must be to count as the same place
+  (default `0.05`). The matcher itself allows `0.35`, but that only holds up
+  once a name has agreed: reversed, it puts every central London venue next to
+  a dozen cinemas.
+- `--include-postcode-area` — also report venues sharing only an outward code
+  (`E11`) with a cinema. A district is not a building, so these need checking
+  by hand.
+
+Reads `retrieved-data/`, which is populated by
+`./scripts/get-latest-retrieved-data.sh`.
+
 ### Cinema Discovery Scripts
 
 These scripts find potential new cinemas from external data sources.
