@@ -41,6 +41,8 @@
     "compare:accessible-screenings": "node scripts/compare-accessible-screenings.js",
     "download:cinemaguide-screenings": "node scripts/download-cinemaguide-screenings.js",
     "compare:cinemaguide-screenings": "node scripts/compare-cinemaguide-screenings.js",
+    "download:cinemour-screenings": "node scripts/download-cinemour-screenings.js",
+    "compare:cinemour-screenings": "node scripts/compare-cinemour-screenings.js",
     "release:sizes": "node scripts/release-sizes.js",
     "stats:workflow-runs": "node scripts/workflow-run-stats.js"
   },

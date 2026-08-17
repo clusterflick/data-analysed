@@ -295,6 +295,50 @@ otherwise produce false positives:
   dedicated matching tier that shifts CG's time back by 1 hour for BST-period
   Barbican events before checking URL + time.
 
+### Cinemour Screenings Comparison
+
+Compares our transformed screening data against
+[Cinemour](https://www.cinemour.com/) to identify films it lists as being in
+London cinemas that we have no future screening for.
+
+```bash
+npm run download:cinemour-screenings
+npm run compare:cinemour-screenings -- cinemour-data/cinemour-data.json transformed-data/current/
+```
+
+The download fetches Cinemour's `/api/in-cinemas` endpoint and saves the
+result to `cinemour-data/cinemour-data.json`.
+
+Unlike CinemaGuide, Cinemour's endpoint isn't a per-venue screening feed — it
+returns TMDB-backed film lists (`openingThisWeek`, `nowShowing`, `comingSoon`,
+`laterThisYear`) used to drive its own homepage, with no venue or showtime
+attached. So the comparison works at the film level rather than the
+screening level:
+
+1. **Builds the target set**: the union of `openingThisWeek` and `nowShowing`
+   — the films Cinemour currently considers bookable. `comingSoon` and
+   `laterThisYear` are excluded since we wouldn't expect screenings for them
+   yet.
+2. **Indexes our data** by TMDB id: every showing across every venue with at
+   least one future performance contributes its `themoviedb.id` (single
+   match) and/or `themoviedbs[].id` (multiple-movies match, e.g. double
+   bills) to the index.
+3. **Reports** target films whose TMDB id isn't in our index — i.e. Cinemour
+   thinks it's in cinemas but we have no future screening for it anywhere.
+
+Missing films are split into two severities:
+
+- **Opening this week** — a brand new release Cinemour lists that we're
+  missing entirely. High-confidence signal; forces the badge red and the
+  script to exit non-zero.
+- **Now showing only** — Cinemour's `nowShowing` list is dominated by
+  repertory/rep-cinema re-releases (season programming, one-off classics),
+  so some genuine noise is expected here (a title playing at a venue Cinemour
+  tracks that we don't, or vice versa). Still reported, but treated as a
+  lower-confidence, informational signal (orange badge) rather than a hard
+  failure driver — though the script still exits non-zero on any miss so CI
+  surfaces the count.
+
 ## Data Files
 
 The `data/` directory contains reference data files:
