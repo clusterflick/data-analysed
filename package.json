@@ -32,6 +32,7 @@
     "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
     "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",
     "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
+    "find:seeingfurther": "node scripts/find-cinemas-seeingfurther.js",
     "convert:boundary-data": "node scripts/convert-boundary-data.js",
     "generate:map": "node scripts/generate-map-file.js",
     "track:movie": "node scripts/track-movie-over-time.js",

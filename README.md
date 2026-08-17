@@ -109,7 +109,50 @@ npm run find:openstreetmap           # Find cinemas from OpenStreetMap data
 npm run find:mycommunitycinema       # Find cinemas from MyCommunity Cinema
 npm run find:independentcinemaoffice # Find cinemas from Independent Cinema Office
 npm run find:pearl-and-dean          # Find cinemas from Pearl & Dean
+npm run find:seeingfurther           # Find cinemas and sources from Seeing Further
 ```
+
+#### Seeing Further
+
+[Seeing Further](https://seeingfurther.substack.com) is a weekly newsletter of
+self-organised film screenings in London. Its listings are one-line entries of
+`<linked title> / Venue Name (Area) / date / price`, so each one gives both a
+venue name to check against our cinemas and a booking link whose host says
+whether we have any route to that screening's data.
+
+```bash
+npm run find:seeingfurther           # Every post in the archive
+npm run find:seeingfurther -- 4      # Just the four most recent posts
+```
+
+Posts are read through Substack's archive API and cached for the day. The report
+has four sections, each answering a different question:
+
+- **Sources we have no route to** — link hosts that match neither a cinema nor a
+  source. A host fronting several venues, or handing each one its own subdomain,
+  is a ticketing platform worth adding as a source; a host fronting one venue is
+  that venue running its own site. Listed whether or not we hold the venue,
+  because a venue we scrape can still sell a one-off hire somewhere we don't
+  look. Two rules keep this section honest in both directions: a platform
+  selling under a second TLD is the same platform (`eventbrite.com` is matched
+  by our `eventbrite.co.uk` source), while a host we hold for one venue does not
+  cover a listing naming a different one — Sands Films books through
+  `eventive.org` and three venues we hold list nothing but an Instagram page, so
+  neither host means we sweep it.
+- **Organisers missing from a source's list** — `tickettailor.com`, `ti.to` and
+  `thecliq.app` are not swept; each source retrieves a hand-maintained list of
+  organiser pages. A link to an organiser that isn't on the list otherwise looks
+  identical to a platform we already cover, so these are pulled out separately:
+  each one is a slug to add to that source's `retrieve.js`. The lists are read
+  out of the source files at runtime rather than copied here, so this cannot
+  drift away from them.
+- **Venues we don't know** — venue names that don't match any cinema we hold,
+  annotated with whether a source we scrape could still reach them.
+- **Venues we already know** — what matched, as a coverage check.
+
+Names that will never be a venue we hold — Canal Film Club's towpath, for
+instance — can be added to `reviewedVenues` in the script so each run shows only
+what is still outstanding.
 
 ### Map Generation
 
