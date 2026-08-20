@@ -6,15 +6,33 @@ const API_URL = `https://api.github.com/repos/${REPO}/releases`;
 const searchTerm = process.argv[2] || "My Father's Shadow";
 const NUM_DAYS = parseInt(process.argv[3], 10) || 30;
 
+// Unauthenticated calls share a per-IP rate limit that repeated runs exhaust
+// quickly, so send a token whenever one is available
+const TOKEN =
+  process.env.PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+const requestOptions = {
+  headers: {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...(TOKEN ? { Authorization: `token ${TOKEN}` } : {}),
+  },
+};
+
 async function fetchReleaseList() {
   return dailyCache("track-movie-releases", async () => {
     console.log(`Fetching release list from ${REPO}...`);
 
     // Fetch multiple pages to ensure we cover enough days
-    const page1 = await fetchJson(`${API_URL}?per_page=100&page=1`);
+    const page1 = await fetchJson(
+      `${API_URL}?per_page=100&page=1`,
+      requestOptions,
+    );
     if (page1.length < 100) return page1;
 
-    const page2 = await fetchJson(`${API_URL}?per_page=100&page=2`);
+    const page2 = await fetchJson(
+      `${API_URL}?per_page=100&page=2`,
+      requestOptions,
+    );
     return [...page1, ...page2];
   });
 }
