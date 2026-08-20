@@ -1,4 +1,5 @@
-// Measures how stable the retrieve and transform pipelines are, as badges.
+// Measures how stable the retrieve, transform and match pipelines are, as
+// badges.
 //
 // Two figures per workflow, over a rolling window of completed runs:
 //   unassisted — how often the run finished first time with nobody stepping in
@@ -10,6 +11,12 @@
 // 1 because a human clicked "re-run". Anything else that completed — failed,
 // cancelled, or eventually succeeded on a later attempt — counts against the
 // percentage. Runs still in progress are ignored entirely.
+//
+// data-matched is dispatched by every data-combined release but only builds one
+// release a day: its first job looks for today's release and, when there is
+// one, every other job is skipped. Those runs finish in seconds having done
+// nothing, so they're dropped from the window entirely rather than counted as
+// successes — see `didNothing` below.
 //
 // Duration deliberately only averages the unassisted runs. GitHub rewrites
 // `run_started_at` to the *latest* attempt when a run is re-run, so a retried
@@ -50,7 +57,35 @@ const TARGETS = [
     unassistedFile: "transform-unassisted.json",
     durationFile: "transform-duration.json",
   },
+  {
+    repo: "clusterflick/data-matched",
+    workflow: "match.yml",
+    unassistedFile: "match-unassisted.json",
+    durationFile: "match-duration.json",
+    // Set on workflows that open with a "have we already done this today?"
+    // job; runs where that guard skipped everything else are discarded.
+    guardJob: "Check if release already created today",
+  },
 ];
+
+async function get(url, description) {
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "clusterflick-data-analysed",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `GitHub API returned ${res.status} ${res.statusText} for ${description}`,
+    );
+  }
+
+  return res.json();
+}
 
 async function fetchRuns(repo, workflow, since) {
   const runs = [];
@@ -63,24 +98,10 @@ async function fetchRuns(repo, workflow, since) {
       created: `>=${since}`,
       exclude_pull_requests: "true",
     });
-    const url = `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?${query}`;
-
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "clusterflick-data-analysed",
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(
-        `GitHub API returned ${res.status} ${res.statusText} for ${repo} ${workflow}`,
-      );
-    }
-
-    const body = await res.json();
+    const body = await get(
+      `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?${query}`,
+      `${repo} ${workflow}`,
+    );
     const batch = body.workflow_runs || [];
     runs.push(...batch);
 
@@ -91,6 +112,38 @@ async function fetchRuns(repo, workflow, since) {
   // silently-ignored filter can't quietly widen the window.
   const cutoff = Date.parse(since);
   return runs.filter((run) => Date.parse(run.created_at) >= cutoff);
+}
+
+// True when the run's guard job was the only thing that did anything — every
+// other job in it was skipped. Only asked of runs that succeeded, because a run
+// that failed or was cancelled always leaves a job concluded that way, so this
+// can never quietly discard one.
+async function didNothing(repo, runId, guardJob) {
+  const body = await get(
+    `https://api.github.com/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`,
+    `${repo} run ${runId} jobs`,
+  );
+  const all = body.jobs || [];
+  // Guarded workflows are small, so one page holds them all. If one ever
+  // outgrows that, keep the run rather than judging it on a partial list.
+  if (all.length < (body.total_count || 0)) return false;
+
+  const jobs = all.filter((job) => job.name !== guardJob);
+  return jobs.length > 0 && jobs.every((job) => job.conclusion === "skipped");
+}
+
+async function dropNoOpRuns(repo, runs, guardJob) {
+  const kept = [];
+  for (const run of runs) {
+    if (
+      run.conclusion === "success" &&
+      (await didNothing(repo, run.id, guardJob))
+    ) {
+      continue;
+    }
+    kept.push(run);
+  }
+  return kept;
 }
 
 function summarise(runs) {
@@ -140,10 +193,18 @@ async function main() {
   const label = `${WINDOW_DAYS} days`;
 
   for (const target of TARGETS) {
-    const runs = await fetchRuns(target.repo, target.workflow, since);
+    const allRuns = await fetchRuns(target.repo, target.workflow, since);
+    const runs = target.guardJob
+      ? await dropNoOpRuns(target.repo, allRuns, target.guardJob)
+      : allRuns;
     const { total, unassisted, averageMs } = summarise(runs);
 
     console.log(`\n${target.repo} (${target.workflow}) since ${since}`);
+
+    const noOps = allRuns.length - runs.length;
+    if (noOps > 0) {
+      console.log(`  ${noOps} runs skipped everything and were discarded`);
+    }
 
     if (total === 0) {
       console.log("  No completed runs in the window.");
@@ -161,7 +222,9 @@ async function main() {
     }
 
     const percent = Math.round((unassisted / total) * 100);
-    console.log(`  ${unassisted} of ${total} completed first time (${percent}%)`);
+    console.log(
+      `  ${unassisted} of ${total} completed first time (${percent}%)`,
+    );
 
     writeBadgeFile(target.unassistedFile, {
       label,

@@ -31,7 +31,9 @@ jobs:
 
       # The run that dispatched this is still in progress (the dispatch is sent
       # from data-transformed's create_release job), so it lands in the next
-      # window rather than this one. Immaterial over 30 days.
+      # window rather than this one — as does today's data-matched run, which
+      # is further down the pipeline and hasn't started yet. Immaterial over
+      # 30 days.
       - name: Publish badges
         env:
           GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
@@ -41,4 +43,6 @@ jobs:
             retrieve-unassisted.json \
             retrieve-duration.json \
             transform-unassisted.json \
-            transform-duration.json
+            transform-duration.json \
+            match-unassisted.json \
+            match-duration.json
