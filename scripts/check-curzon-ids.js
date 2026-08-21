@@ -23,17 +23,18 @@ async function checkCurzonIds() {
   const cacheKey = "check-curzon-ids";
   const venueData = await getPageWithPlaywright(url, cacheKey, async (page) => {
     await page.waitForLoadState();
-    return page.evaluate((url) => {
-      return fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          "Content-Type": "application/json",
-          // eslint-disable-next-line no-undef
-          authorization: `Bearer ${window.initialData.api.authToken}`,
-        },
-      }).then((response) => response.json());
-    }, "https://vwc.curzon.com/WSVistaWebClient/ocapi/v1/sites");
+    // Curzon have moved their API host before, so take it from the page rather
+    // than hardcoding it - the same way the retrieval of their listings does.
+    const api = await page.evaluate(
+      () => /* global window */ window.initialData.api,
+    );
+    const response = await fetch(`${api.url || api.apiUrl}/ocapi/v1/sites`, {
+      headers: {
+        Accept: "application/json",
+        authorization: `Bearer ${api.authToken}`,
+      },
+    });
+    return response.json();
   });
 
   const recorded = await getNullMapping(prefix);
