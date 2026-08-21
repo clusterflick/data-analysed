@@ -28,6 +28,8 @@
     "discover:tickettailor": "node scripts/discover-tickettailor-venues.js",
     "discover:tito": "node scripts/discover-tito-venues.js",
     "find:venue-name-mismatches": "node scripts/find-venue-name-mismatches.js",
+    "find:venue-location-mismatches": "node scripts/find-venue-location-mismatches.js",
+    "find:venue-leads": "node scripts/find-venue-leads.js",
     "find:openstreetmap": "node scripts/find-cinemas-openstreetmap.js",
     "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
     "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",

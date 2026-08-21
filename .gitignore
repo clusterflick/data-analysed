@@ -6,6 +6,7 @@ desktop.ini
 node_modules/
 .env
 cache/
+cache-llm/
 playwright-failures/
 *.kml
 

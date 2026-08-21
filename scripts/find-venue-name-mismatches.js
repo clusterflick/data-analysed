@@ -1,14 +1,15 @@
-const {
-  getAllSourceNames,
-  getSourceDiscoverVenues,
-  getSourceAttributes,
-} = require("scripts/sources");
+const { getSourceDiscoverVenues } = require("scripts/sources");
 const {
   findCinemasMatchingLocation,
   cinemaNameMatches,
 } = require("scripts/common/source-utils");
 const normalizeVenueName = require("scripts/common/normalize-venue-name");
 const { getAllCinemaAttributes } = require("scripts/cinemas");
+const {
+  getVenueAddress,
+  getSampleEventUrl,
+  getDiscoverableSourceNames,
+} = require("./common/discovered-venues");
 
 // The matcher tolerates 350m between a venue and a cinema, which is safe when
 // the name has already agreed but useless on its own: in central London every
@@ -17,25 +18,6 @@ const { getAllCinemaAttributes } = require("scripts/cinemas");
 // far tighter and let --max-distance widen it back out when triaging a
 // specific venue.
 const DEFAULT_MAX_DISTANCE_KM = 0.05;
-
-// Sources name the venue address differently: most carry it as `address`,
-// while TicketSource joins its separate address fields into `eventAddress`.
-function getVenueAddress(venue) {
-  return venue.address || venue.eventAddress || null;
-}
-
-// Mirrors the sample URL each discover-*-venues.js script prints, since the
-// grouped events are the source's own raw records rather than a shared shape.
-function getSampleEventUrl(sourceName, venue) {
-  const event = venue.events[0];
-  if (!event) return "";
-  if (sourceName === "designmynight.com") return event.path || "";
-  if (sourceName === "ticketsource.co.uk") {
-    const { domain } = getSourceAttributes(sourceName);
-    return `${domain}/whats-on/${event.locationSlug}/${event.venueSlug}/${event.eventSlug}/${event.eventHash}`;
-  }
-  return event.url || "";
-}
 
 function describeLocationMatch(locationMatch) {
   if (locationMatch.type === "distance") {
@@ -161,10 +143,7 @@ async function main() {
   const options = parseOptions(process.argv.slice(2));
   const knownCinemas = getAllCinemaAttributes();
 
-  const sourceNames = getAllSourceNames().filter((name) => {
-    if (options.source && name !== options.source) return false;
-    return !!getSourceDiscoverVenues(name);
-  });
+  const sourceNames = getDiscoverableSourceNames(options.source);
 
   if (sourceNames.length === 0) {
     console.error(
