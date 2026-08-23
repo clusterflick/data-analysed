@@ -1,0 +1,69 @@
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [compare_releases]
+
+name: Compare Cinemour Screenings
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Compare Cinemour Screenings
+    runs-on: self-hosted
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - uses: clusterflick/.github/setup-cache-paths@main
+
+      # Skip if there's nothing new: if the latest data-retrieved release is
+      # more than an hour old there's no fresh data to compare against. Checked
+      # before the (slow) download + compare. A manual "Run workflow"
+      # (workflow_dispatch) bypasses the check and always runs.
+      - name: Check retrieved data freshness
+        id: freshness
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          RELEASE_REPO: "clusterflick/data-retrieved"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — bypassing freshness check."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/check-release-freshness.js >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.freshness.outputs.should_run == 'true'
+        run: npm install
+      - if: steps.freshness.outputs.should_run == 'true'
+        uses: clusterflick/release-downloader@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-transformed"
+          latest: true
+          fileName: "*"
+          out-file-path: "transformed-data"
+
+      - name: Download Cinemour data
+        if: steps.freshness.outputs.should_run == 'true'
+        run: npm run download:cinemour-screenings
+
+      - name: Compare Cinemour screenings
+        if: steps.freshness.outputs.should_run == 'true'
+        run: npm run compare:cinemour-screenings -- cinemour-data/cinemour-data.json transformed-data
+
+      # Publish the badge even when the comparison found mismatches (exit 1), but
+      # not when the run was skipped as stale (which leaves the previous badge).
+      - name: Publish badge
+        if: always() && steps.freshness.outputs.should_run == 'true'
+        env:
+          GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: node scripts/publish-badge.js compare-cinemour-screenings.json
