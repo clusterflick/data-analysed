@@ -89,7 +89,8 @@ function main() {
   const failures = Object.entries(byKind)
     .filter(([kind]) => FAILURE_KINDS.has(kind))
     .reduce((total, [, count]) => total + count, 0);
-  const observations = (byKind["bot-challenge"] ?? 0) + (byKind["no-listings-found"] ?? 0);
+  const challenged = byKind["bot-challenge"] ?? 0;
+  const noListings = byKind["no-listings-found"] ?? 0;
   const healthy = byKind.ok ?? 0;
 
   console.log(
@@ -104,15 +105,24 @@ function main() {
 
   // Red when a venue we track can't be observed at all; orange when the source
   // itself pushed back; green only when every venue answered.
+  //
+  // Challenged and empty are both amber but they are not the same thing - one is
+  // the source blocking us, the other is the source telling us there is nothing
+  // on - so the badge names whichever it is rather than lumping them together.
+  const aside = [
+    failures > 0 && `${failures} failing`,
+    challenged > 0 && `${challenged} challenged`,
+    noListings > 0 && `${noListings} with no listings`,
+  ].filter(Boolean);
+
   writeBadgeFile("venue-health.json", {
     label: "venue health",
     message:
-      failures > 0
-        ? `${healthy}/${rows.length} venues, ${failures} failing`
-        : observations > 0
-          ? `${healthy}/${rows.length} venues, ${observations} not listing`
-          : `${rows.length} venues`,
-    color: failures > 0 ? "red" : observations > 0 ? "orange" : "brightgreen",
+      aside.length > 0
+        ? `${healthy}/${rows.length} venues, ${aside.join(", ")}`
+        : `${rows.length} venues`,
+    color:
+      failures > 0 ? "red" : challenged + noListings > 0 ? "orange" : "brightgreen",
   });
 }
 

@@ -20,10 +20,10 @@ concurrency:
 
 jobs:
   # ------------------------------------------------------------------------------
-  # Probes that need no browser
+  # Probes that run fine from a GitHub-hosted runner
   # ------------------------------------------------------------------------------
-  probe_http:
-    name: Probe (HTTP)
+  probe_hosted:
+    name: Probe (GitHub-hosted)
     runs-on: ubuntu-latest
     # A challenged probe waits ~60s and retries, so a bad cycle is minutes not
     # seconds. Bounded because cycles queue on the concurrency group: one wedged
@@ -37,10 +37,6 @@ jobs:
       # Every step runs even when an earlier one fails: each group is an
       # independent observation, and a chain being down is not a reason to stop
       # looking at the others.
-      - name: cineworld.co.uk
-        if: always()
-        run: npm run health -- cineworld.co.uk
-
       - name: everymancinema.com
         if: always()
         run: npm run health -- everymancinema.com
@@ -59,15 +55,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: health_http
+          name: health_hosted
           path: health-data/
           if-no-files-found: error
 
   # ------------------------------------------------------------------------------
-  # Probes that need a browser
+  # Probes that need a browser, plus any that a datacentre IP gets blocked from.
+  # Cineworld needs no browser but sits behind Cloudflare: from a GitHub-hosted
+  # runner every one of its twelve venues came back `cf-mitigated` 403, on the
+  # retry as well as the first attempt. The residential IP clears it.
   # ------------------------------------------------------------------------------
-  probe_browser:
-    name: Probe (browser)
+  probe_self_hosted:
+    name: Probe (self-hosted)
     runs-on: self-hosted
     timeout-minutes: 20
     env:
@@ -81,13 +80,13 @@ jobs:
         if: always()
         run: npm run health -- bfi.org.uk
 
+      - name: cineworld.co.uk
+        if: always()
+        run: npm run health -- cineworld.co.uk
+
       - name: curzon.com
         if: always()
         run: npm run health -- curzon.com
-
-      - name: myvue.com
-        if: always()
-        run: npm run health -- myvue.com
 
       - name: odeon.co.uk
         if: always()
@@ -97,7 +96,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: health_browser
+          name: health_self_hosted
           path: health-data/
           if-no-files-found: error
 
@@ -108,7 +107,45 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: health_browser-playwright-failures
+          name: health_self_hosted-playwright-failures
+          path: ./playwright-failures
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------------------------
+  # Vue on its own
+  # ------------------------------------------------------------------------------
+  # Fifteen venues fetched one at a time from a single page session, which is the
+  # longest single probe by some way. Parallel jobs pay setup concurrently, so
+  # the self-hosted side can never finish sooner than setup plus its slowest
+  # probe - splitting the slowest one out is the only thing that moves that
+  # floor, and splitting any further buys nothing.
+  probe_vue:
+    name: Probe (Vue)
+    runs-on: self-hosted
+    timeout-minutes: 20
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: clusterflick/.github/setup@main
+        with:
+          playwright: true
+
+      - name: myvue.com
+        run: npm run health -- myvue.com
+
+      - name: Upload health data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_vue
+          path: health-data/
+          if-no-files-found: error
+
+      - name: Save browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_vue-playwright-failures
           path: ./playwright-failures
           if-no-files-found: ignore
 
@@ -118,14 +155,18 @@ jobs:
   append_log:
     name: Append to Log
     runs-on: ubuntu-latest
-    # Runs even when a probe job failed: those rows say why, and dropping them
-    # would lose exactly the cycles worth looking at.
-    if: always()
+    # Runs when a probe job failed - those rows say why, and dropping them would
+    # lose exactly the cycles worth looking at - but not when one was cancelled,
+    # where the rows are an arbitrary fraction of a cycle rather than a finding.
+    # `always()` would include the cancelled case; this doesn't. A job that hits
+    # its `timeout-minutes` counts as failed, not cancelled, so a stalled probe
+    # still gets its partial cycle recorded.
+    if: ${{ !cancelled() }}
     timeout-minutes: 10
     permissions:
       contents: write
       actions: read
-    needs: [probe_http, probe_browser]
+    needs: [probe_hosted, probe_self_hosted, probe_vue]
     env:
       TZ: Europe/London
     steps:
