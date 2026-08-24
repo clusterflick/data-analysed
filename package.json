@@ -45,7 +45,9 @@
     "download:cinemaguide-screenings": "node scripts/download-cinemaguide-screenings.js",
     "compare:cinemaguide-screenings": "node scripts/compare-cinemaguide-screenings.js",
     "release:sizes": "node scripts/release-sizes.js",
-    "stats:workflow-runs": "node scripts/workflow-run-stats.js"
+    "stats:workflow-runs": "node scripts/workflow-run-stats.js",
+    "health": "TZ=Europe/London node node_modules/scripts/index.js health",
+    "health:append-log": "node scripts/append-health-log.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",
