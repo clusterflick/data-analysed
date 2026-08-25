@@ -42,7 +42,18 @@ function readRows(directory) {
     const filePath = path.join(directory, filename);
     if (!fs.statSync(filePath).isFile()) continue;
 
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    // Named rather than left to `JSON.parse` to report. A stray file here took
+    // out a whole cycle once - the workflow was handing this directory the
+    // browser-failure artifacts as well as the rows - and a raw SyntaxError on
+    // a PNG header says nothing about which file or where it came from.
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch (error) {
+      throw new Error(
+        `${filename} in ${directory} is not JSON - only probe row files belong here (${error.message})`,
+      );
+    }
     if (!Array.isArray(parsed)) {
       throw new Error(`${filename} is not an array of rows`);
     }
@@ -91,6 +102,7 @@ function main() {
     .reduce((total, [, count]) => total + count, 0);
   const challenged = byKind["bot-challenge"] ?? 0;
   const noListings = byKind["no-listings-found"] ?? 0;
+  const maintenance = byKind["source-maintenance"] ?? 0;
   const healthy = byKind.ok ?? 0;
 
   console.log(
@@ -112,6 +124,7 @@ function main() {
   const aside = [
     failures > 0 && `${failures} failing`,
     challenged > 0 && `${challenged} challenged`,
+    maintenance > 0 && `${maintenance} in maintenance`,
     noListings > 0 && `${noListings} with no listings`,
   ].filter(Boolean);
 
@@ -122,8 +135,25 @@ function main() {
         ? `${healthy}/${rows.length} venues, ${aside.join(", ")}`
         : `${rows.length} venues`,
     color:
-      failures > 0 ? "red" : challenged + noListings > 0 ? "orange" : "brightgreen",
+      failures > 0
+        ? "red"
+        : challenged + maintenance + noListings > 0
+          ? "orange"
+          : "brightgreen",
   });
 }
 
-main();
+// The badge is written from the rows, so a cycle that dies before it gets there
+// leaves yesterday's badge up - a broken cycle reading as the last healthy one.
+// Same reasoning as the probe writing its rows before it is allowed to fail: say
+// what happened, then go red.
+try {
+  main();
+} catch (error) {
+  writeBadgeFile("venue-health.json", {
+    label: "venue health",
+    message: "cycle failed",
+    color: "red",
+  });
+  throw error;
+}
