@@ -107,7 +107,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: health_self_hosted-playwright-failures
+          name: playwright-failures-self_hosted
           path: ./playwright-failures
           if-no-files-found: ignore
 
@@ -145,7 +145,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: health_vue-playwright-failures
+          name: playwright-failures-vue
           path: ./playwright-failures
           if-no-files-found: ignore
 
@@ -180,6 +180,14 @@ jobs:
       - name: Download this cycle's health data
         uses: actions/download-artifact@v8
         with:
+          # Only the row artifacts. Without a pattern this takes every artifact
+          # in the run, and `merge-multiple` flattens them into one directory -
+          # so a browser probe's screenshot and page dump land beside the rows
+          # and the append below tries to parse a PNG as JSON. Those artifacts
+          # only exist when a probe failed, which is exactly the cycle the log
+          # most wants to keep, so the names are kept disjoint rather than
+          # relying on the append to skip them.
+          pattern: health_*
           path: health-data/
           merge-multiple: true
           github-token: ${{ github.token }}
