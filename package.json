@@ -47,7 +47,8 @@
     "release:sizes": "node scripts/release-sizes.js",
     "stats:workflow-runs": "node scripts/workflow-run-stats.js",
     "health": "TZ=Europe/London node node_modules/scripts/index.js health",
-    "health:append-log": "node scripts/append-health-log.js"
+    "health:append-log": "node scripts/append-health-log.js",
+    "health:analyse-log": "node scripts/analyse-health-log.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",
