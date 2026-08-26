@@ -1,0 +1,139 @@
+# Folds each day's LLM usage report into a rolling monthly log.
+#
+# data-transformed builds the report at the end of every transform run and
+# uploads it as a workflow artifact, where it expires with the run's retention
+# and can't be compared against any other day. This collects it into a release
+# asset instead, so the series outlives the artifact it came from.
+#
+# Deliberately not data-transformed's own job: its release is downloaded by
+# data-diffed, data-combined and data-cached with `fileName: "*"` into
+# directories they then iterate as venue files, so a report published there
+# would land in three downstream stages' inputs.
+#
+# Fired by data-transformed as its report job finishes, once per transform run,
+# with the run id in the payload. Not on a schedule: the transform pipeline is
+# dispatched by each data-retrieved release and goes two to four times a day, so
+# a daily collection would take whichever run it happened to land on and leave
+# the rest uncollected - and their artifacts expire inside a fortnight.
+#
+# The manual path collects the newest run that still has a usable report, or a
+# named one for a collection that was missed.
+on:
+  repository_dispatch:
+    types: [llm_usage_report]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: "Backfill: collect this data-transformed run instead of the newest usable one"
+        required: false
+        default: ""
+
+name: LLM Usage Log
+
+permissions:
+  contents: read
+
+# The log is appended in place: the job reads the month's release asset, adds
+# the run's row and writes it back. Two collections overlapping would lose one
+# of them, so they queue instead of cancelling - back-to-back transform runs
+# make that a real possibility rather than a theoretical one.
+concurrency:
+  group: llm-usage-log
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect LLM Usage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # No `npm install` — both scripts below use only the built-in fetch, so
+      # this stays a handful of API calls rather than a dependency install.
+      # Same reasoning as workflow-run-stats.yml.
+      - name: Find the run to collect
+        id: find
+        env:
+          # Needs `actions: read` on data-transformed - the artifact belongs to
+          # another repository, so the job's own token can't see it.
+          GH_TOKEN: ${{ secrets.PAT }}
+          # The dispatched run id when data-transformed sent us here, the input
+          # when a person did, and empty for "newest usable" when neither.
+          RUN_ID: ${{ github.event.client_payload.run_id || inputs.run-id }}
+        run: npm run llm-usage:find-run
+
+      - name: Download that run's report
+        uses: actions/download-artifact@v8
+        with:
+          name: llm-usage-report
+          path: llm-usage-report/
+          repository: clusterflick/data-transformed
+          run-id: ${{ steps.find.outputs.run_id }}
+          github-token: ${{ secrets.PAT }}
+
+      - name: Download the month's log so far
+        # Absent on the month's first collection, which is not an error - the
+        # append script starts a new log when the file isn't there.
+        continue-on-error: true
+        uses: clusterflick/release-downloader@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-analysed"
+          tag: ${{ steps.find.outputs.tag }}
+          fileName: "llm-usage-log.jsonl"
+          out-file-path: "output"
+
+      - name: Append the run
+        env:
+          RUN_ID: ${{ steps.find.outputs.run_id }}
+          RUN_DATE: ${{ steps.find.outputs.run_date }}
+          RUN_AT: ${{ steps.find.outputs.run_at }}
+        run: npm run llm-usage:append-log -- llm-usage-report/llm-usage-report.json output/llm-usage-log.jsonl
+
+      # The digest the transform run printed into its own log and nothing read.
+      - name: Show the day's report
+        run: cat llm-usage-report/summary.txt >> "$GITHUB_STEP_SUMMARY"
+
+      # A release a month, not a release a day: twelve entries a year in the
+      # timeline rather than 365, and a trend is one download. The tag is
+      # prefixed because venue-health already holds the bare YYYYMMDD tags in
+      # this repo - sharing them would work (release assets are replaced by
+      # name, so the two logs can't evict each other) but every hourly health
+      # cycle rewrites the release body, so the description would never be
+      # this job's for long.
+      - uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          replacesArtifacts: true
+          artifactErrorsFailBuild: true
+          artifacts: "output/llm-usage-log.jsonl"
+          makeLatest: false
+          tag: ${{ steps.find.outputs.tag }}
+          commit: main
+          body: |
+            LLM usage for the transform pipeline, a month to a release.
+            One JSON row per transform run - a day's figures are the sum of its
+            rows. See scripts/append-llm-usage-log.js for the row shape, and
+            scripts/llm-usage in clusterflick/scripts for the report each row is
+            folded from.
+
+      - name: Publish badge
+        # `always()` so a failed collection publishes the red badge rather than
+        # leaving the last green one up. Skipped when a person named a run to
+        # backfill: that row is usually an old one, and the badge speaks for
+        # today.
+        if: ${{ always() && inputs.run-id == '' }}
+        env:
+          GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: node scripts/publish-badge.js llm-usage.json

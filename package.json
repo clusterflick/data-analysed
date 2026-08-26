@@ -46,6 +46,8 @@
     "compare:cinemaguide-screenings": "node scripts/compare-cinemaguide-screenings.js",
     "release:sizes": "node scripts/release-sizes.js",
     "stats:workflow-runs": "node scripts/workflow-run-stats.js",
+    "llm-usage:find-run": "node scripts/find-llm-usage-run.js",
+    "llm-usage:append-log": "node scripts/append-llm-usage-log.js",
     "health": "TZ=Europe/London node node_modules/scripts/index.js health",
     "health:append-log": "node scripts/append-health-log.js",
     "health:analyse-log": "node scripts/analyse-health-log.js"
