@@ -338,6 +338,34 @@ otherwise produce false positives:
   dedicated matching tier that shifts CG's time back by 1 hour for BST-period
   Barbican events before checking URL + time.
 
+### LLM Usage Log
+
+```bash
+npm run llm-usage:find-run       # Resolve the transform run to collect
+npm run llm-usage:append-log -- <report-file> <log-file>
+```
+
+Turns the LLM usage report that `data-transformed` builds at the end of each
+transform run into a series. The report is uploaded there as a workflow
+artifact, which expires inside a fortnight and can only be read one run at a
+time; `data-transformed` dispatches each run's id here as its report job
+finishes, and the `LLM Usage Log` workflow appends that run's row to
+`llm-usage-log.jsonl`, published on this repository's `llm-usage-YYYYMM`
+release.
+
+One row per transform run, not per day - the pipeline is dispatched by each
+`data-retrieved` release and goes two to four times a day, so a day's figures
+are the sum of its rows. A row carries the run's call count, cache hit rate,
+tokens, estimated cost and per-call-site breakdown. The per-venue breakdown is
+not kept: it stays in the run's own artifact, which is where to look once the
+log says which run is worth looking at, and for as long as it lasts.
+
+Rows are keyed by run id, so re-collecting a run rewrites its row rather than
+adding a second one. A run that was missed - the dispatch never arrived, or a
+transform job failed so no report was produced - can be collected later by
+running the workflow manually, either with its `run-id` input or with none to
+take the newest run that still has a usable report.
+
 ## Data Files
 
 The `data/` directory contains reference data files:
