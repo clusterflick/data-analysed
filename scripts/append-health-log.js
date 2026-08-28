@@ -26,10 +26,11 @@ if (!healthDataDir || !logFile) {
   );
 }
 
-// Only these mean something is wrong on our side. A bot challenge, or a venue
-// with nothing on,
-// venue is an observation about the source - see scripts/health in the scripts
-// repo, which uses the same split to decide the job's exit code.
+// Only these mean something is wrong on our side. A bot challenge, a venue with
+// nothing on, or a venue shut for declared works is an observation about the
+// source - see scripts/health in the scripts repo, which uses the same split to
+// decide the job's exit code, and which re-labels a declared closure before the
+// rows ever get here.
 const FAILURE_KINDS = new Set(["unknown-venue-id", "probe-error"]);
 
 function readRows(directory) {
@@ -103,6 +104,7 @@ function main() {
   const challenged = byKind["bot-challenge"] ?? 0;
   const noListings = byKind["no-listings-found"] ?? 0;
   const maintenance = byKind["source-maintenance"] ?? 0;
+  const closed = byKind["expected-closure"] ?? 0;
   const healthy = byKind.ok ?? 0;
 
   console.log(
@@ -121,11 +123,19 @@ function main() {
   // Challenged and empty are both amber but they are not the same thing - one is
   // the source blocking us, the other is the source telling us there is nothing
   // on - so the badge names whichever it is rather than lumping them together.
+  //
+  // A venue shut for declared works is amber for the same reason rather than
+  // green: the estate is not fully observable while it is dark, and a chain
+  // drops a closed venue from its own site list, so the probe cannot see it at
+  // all. It is not a failure - it is the one absence we asked for - but a badge
+  // reading green while a venue is missing would be saying something it does not
+  // know. Named so a week of amber says which week it is.
   const aside = [
     failures > 0 && `${failures} failing`,
     challenged > 0 && `${challenged} challenged`,
     maintenance > 0 && `${maintenance} in maintenance`,
     noListings > 0 && `${noListings} with no listings`,
+    closed > 0 && `${closed} closed`,
   ].filter(Boolean);
 
   writeBadgeFile("venue-health.json", {
@@ -137,7 +147,7 @@ function main() {
     color:
       failures > 0
         ? "red"
-        : challenged + maintenance + noListings > 0
+        : challenged + maintenance + noListings + closed > 0
           ? "orange"
           : "brightgreen",
   });
