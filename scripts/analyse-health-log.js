@@ -10,10 +10,12 @@
 //
 // Two things the report deliberately does not do:
 //
-//   - Sum counts across chains. Five chains report individual performances and
-//     three report a film x date matrix, so a total over both is a number with
-//     no meaning. `films` and `dates` are comparable everywhere; anything
-//     finer-grained is reported per chain, labelled with what it counts.
+//   - Sum counts across chains. A chain answering with individual performances
+//     and one answering with a film x date matrix are counting different
+//     things, so a total over both is a number with no meaning - and Omniplex
+//     answers with neither, only the size of each axis. `films` and `dates` are
+//     comparable everywhere; anything finer-grained is reported per chain,
+//     labelled with what it counts.
 //
 //   - Group rows by the date in `at`. That field is UTC while the release tag
 //     is London, so through BST the day's first cycle carries the previous
@@ -40,12 +42,22 @@ const requestOptions = {
   },
 };
 
-// The chains that answer with a film x date matrix rather than individual
-// performances. Kept as a lookup off the row's own `granularity` so a chain
-// changing what it reports shows up here rather than being silently miscounted.
+// What a chain's third count is called, keyed off the row's own `granularity`
+// so a chain changing what it reports shows up here rather than being silently
+// miscounted.
+//
+// Omniplex has no third count. It publishes one date at a time, so a film x
+// date matrix would cost it a request per published date, and its probe reports
+// the size of each axis instead - `films` and `dates` are the whole of its
+// `counts`, and both already have a column of their own. `null` says that
+// rather than naming a metric: summing an absent key would print a `0` that
+// reads as "no showings" instead of "not counted". A granularity missing from
+// this table altogether is a different thing - a chain reporting something this
+// report has never been taught - and still shows as `?`.
 const GRANULARITY_METRIC = {
   "film-date": "filmDatePairs",
   performance: "performances",
+  "film-and-date-totals": null,
 };
 
 const londonHour = (at) =>
@@ -320,14 +332,16 @@ function reportHorizon(cycles) {
     const granularity = rows.find(
       ({ granularity }) => granularity,
     )?.granularity;
-    const metric = GRANULARITY_METRIC[granularity] ?? "?";
-    const total = withCounts.reduce(
-      (sum, { counts }) => sum + (counts[metric] ?? 0),
-      0,
-    );
+    // `in` rather than a `??` default: a mapped `null` means "this chain has
+    // no third count", which is not the same as a granularity we don't know.
+    const metric =
+      granularity in GRANULARITY_METRIC ? GRANULARITY_METRIC[granularity] : "?";
+    const counted = metric
+      ? `${withCounts.reduce((sum, { counts }) => sum + (counts[metric] ?? 0), 0)} ${metric}`
+      : "-";
 
     console.log(
-      `  ${chain.padEnd(24)} ${String(rows.length).padStart(6)} ${String(films).padStart(6)} ${String(dates).padStart(6)} ${(horizon ?? "-").padStart(12)}${outlier ? ` (max ${outlier})` : ""}  ${total} ${metric}`,
+      `  ${chain.padEnd(24)} ${String(rows.length).padStart(6)} ${String(films).padStart(6)} ${String(dates).padStart(6)} ${(horizon ?? "-").padStart(12)}${outlier ? ` (max ${outlier})` : ""}  ${counted}`,
     );
   }
 
@@ -337,7 +351,9 @@ function reportHorizon(cycles) {
       "  venues, so a film showing at three of them counts three times - they are\n" +
       "  comparable between chains, but they are not distinct-title counts. The\n" +
       "  last column is not comparable at all: it counts whatever that chain's\n" +
-      "  API answers with.",
+      "  API answers with. A `-` in either of those two columns is a chain that\n" +
+      "  reports no per-date breakdown, not one with nothing on - its dates\n" +
+      "  column is still its real count of published dates.",
   );
 }
 
