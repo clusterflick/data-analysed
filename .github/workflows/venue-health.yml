@@ -22,6 +22,13 @@ jobs:
   # ------------------------------------------------------------------------------
   # Probes that run fine from a GitHub-hosted runner
   # ------------------------------------------------------------------------------
+  # Castle, Admit One and Omniplex retrieve from a self-hosted runner, which is
+  # not an argument for probing from one: data-retrieved buckets every
+  # standalone venue into `retrieve_remaining_cinemas_*`, self-hosted with a
+  # browser for the whole job rather than per venue. None of these probes opens
+  # one, and princecharlescinema.com sits in that same bucket and probes from
+  # here. Electric and Olympic Studios need no such argument - they retrieve
+  # from a GitHub-hosted runner already.
   probe_hosted:
     name: Probe (GitHub-hosted)
     runs-on: ubuntu-latest
@@ -34,12 +41,42 @@ jobs:
     steps:
       - uses: clusterflick/.github/setup@main
 
-      # Every step runs even when an earlier one fails: each group is an
-      # independent observation, and a chain being down is not a reason to stop
-      # looking at the others.
+      # A location is either a chain group or a single venue, and the two look
+      # the same from here - `scripts/health` resolves whichever it was handed.
+      # Listed alphabetically for that reason: venues that share a probe are not
+      # adjacent (Castle's two domains, Olympic Studios' three), and ordering by
+      # the relationship would only hide that the list is flat.
+      #
+      # Every step runs even when an earlier one fails: each is an independent
+      # observation, and a chain being down is not a reason to stop looking at
+      # the others.
+      - name: castlesidcup.com
+        if: always()
+        run: npm run health -- castlesidcup.com
+
+      - name: electriccinema.co.uk
+        if: always()
+        run: npm run health -- electriccinema.co.uk
+
       - name: everymancinema.com
         if: always()
         run: npm run health -- everymancinema.com
+
+      - name: forestcinema.co.uk
+        if: always()
+        run: npm run health -- forestcinema.co.uk
+
+      - name: genesiscinema.co.uk
+        if: always()
+        run: npm run health -- genesiscinema.co.uk
+
+      - name: olympiccinema.com
+        if: always()
+        run: npm run health -- olympiccinema.com
+
+      - name: omniplex.co.uk
+        if: always()
+        run: npm run health -- omniplex.co.uk
 
       - name: picturehouses.com
         if: always()
@@ -48,6 +85,18 @@ jobs:
       - name: princecharlescinema.com
         if: always()
         run: npm run health -- princecharlescinema.com
+
+      - name: thecastlecinema.com
+        if: always()
+        run: npm run health -- thecastlecinema.com
+
+      - name: thecinemaatselfridges.com
+        if: always()
+        run: npm run health -- thecinemaatselfridges.com
+
+      - name: thecinemainthepowerstation.com
+        if: always()
+        run: npm run health -- thecinemainthepowerstation.com
 
       # Rows are written before a probe is allowed to fail the step, so this
       # uploads the evidence of a failed cycle as well as a healthy one.
