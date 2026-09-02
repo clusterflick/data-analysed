@@ -390,6 +390,16 @@ package as a dependency. The scripts package provides:
   getCinemaAttributes, etc.)
 - `scripts/sources` - Event source access (getSourceDiscoverVenues, etc.)
 
-## License
+## Licence
 
-MIT
+The code in this repository is licensed under the [MIT licence](LICENSE).
+
+The releases are **not licensed at all**. They are internal telemetry:
+`health-log.jsonl`, one row per venue per hourly cycle behind the status panel
+on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
+row per transform run behind the LLM usage badge. No rights are granted over
+either, and their row shapes change without notice.
+
+For data you can use, see the
+[data licence](https://clusterflick.com/data-licence). The exact terms for this
+repository are in [LICENSE-DATA](LICENSE-DATA).

@@ -270,6 +270,8 @@ jobs:
             One JSON row per venue per cycle - see scripts/health in
             clusterflick/scripts for the row shape.
 
+            ⚠️ **Internal telemetry — not licensed.** This drives the status panel on clusterflick.com and the venue health badge. No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+
       - name: Publish badge
         if: always()
         env:

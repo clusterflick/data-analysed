@@ -127,6 +127,8 @@ jobs:
             scripts/llm-usage in clusterflick/scripts for the report each row is
             folded from.
 
+            ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+
       - name: Publish badge
         # `always()` so a failed collection publishes the red badge rather than
         # leaving the last green one up. Skipped when a person named a run to

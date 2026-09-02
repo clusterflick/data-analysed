@@ -1,0 +1,28 @@
+Data licence — data-analysed releases
+=====================================
+
+The MIT licence in LICENSE covers the code in this repository. It does not
+cover the data published in this repository's releases, and no licence is
+granted over that data.
+
+The releases here are internal telemetry, published because the pipeline runs
+in the open rather than as a dataset offered for reuse:
+
+  * health-log.jsonl - one row per venue per hourly cycle, recording whether
+    that venue's retrieval is behaving. Drives the status panel on
+    clusterflick.com and the venue health badge.
+  * llm-usage-log.jsonl - one row per transform run, recording what the
+    pipeline spent on LLM calls. Drives the LLM usage badge.
+
+Concretely:
+
+  * No licence is granted over these releases.
+  * There are no schema guarantees. The row shapes change whenever the jobs
+    writing them need them to — without notice and without a deprecation
+    period.
+  * There is no warranty and no guarantee of accuracy, availability or
+    continuity. Releases can stop, be deleted or be restructured at any time.
+
+For data you can use, see:
+
+    https://clusterflick.com/data-licence
