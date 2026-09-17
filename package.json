@@ -28,10 +28,13 @@
     "discover:tickettailor": "node scripts/discover-tickettailor-venues.js",
     "discover:tito": "node scripts/discover-tito-venues.js",
     "find:venue-name-mismatches": "node scripts/find-venue-name-mismatches.js",
+    "find:venue-location-mismatches": "node scripts/find-venue-location-mismatches.js",
+    "find:venue-leads": "node scripts/find-venue-leads.js",
     "find:openstreetmap": "node scripts/find-cinemas-openstreetmap.js",
     "find:mycommunitycinema": "node scripts/find-cinemas-mycommunitycinema.js",
     "find:independentcinemaoffice": "node scripts/find-cinemas-independentcinemaoffice.js",
     "find:pearl-and-dean": "node scripts/find-cinemas-pearl-and-dean.js",
+    "find:seeingfurther": "node scripts/find-cinemas-seeingfurther.js",
     "convert:boundary-data": "node scripts/convert-boundary-data.js",
     "generate:map": "node scripts/generate-map-file.js",
     "track:movie": "node scripts/track-movie-over-time.js",
@@ -44,7 +47,12 @@
     "download:cinemour-screenings": "node scripts/download-cinemour-screenings.js",
     "compare:cinemour-screenings": "node scripts/compare-cinemour-screenings.js",
     "release:sizes": "node scripts/release-sizes.js",
-    "stats:workflow-runs": "node scripts/workflow-run-stats.js"
+    "stats:workflow-runs": "node scripts/workflow-run-stats.js",
+    "llm-usage:find-run": "node scripts/find-llm-usage-run.js",
+    "llm-usage:append-log": "node scripts/append-llm-usage-log.js",
+    "health": "TZ=Europe/London node node_modules/scripts/index.js health",
+    "health:append-log": "node scripts/append-health-log.js",
+    "health:analyse-log": "node scripts/analyse-health-log.js"
   },
   "dependencies": {
     "@placemarkio/tokml": "^0.3.7",

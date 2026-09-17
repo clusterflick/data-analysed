@@ -109,7 +109,50 @@ npm run find:openstreetmap           # Find cinemas from OpenStreetMap data
 npm run find:mycommunitycinema       # Find cinemas from MyCommunity Cinema
 npm run find:independentcinemaoffice # Find cinemas from Independent Cinema Office
 npm run find:pearl-and-dean          # Find cinemas from Pearl & Dean
+npm run find:seeingfurther           # Find cinemas and sources from Seeing Further
 ```
+
+#### Seeing Further
+
+[Seeing Further](https://seeingfurther.substack.com) is a weekly newsletter of
+self-organised film screenings in London. Its listings are one-line entries of
+`<linked title> / Venue Name (Area) / date / price`, so each one gives both a
+venue name to check against our cinemas and a booking link whose host says
+whether we have any route to that screening's data.
+
+```bash
+npm run find:seeingfurther           # Every post in the archive
+npm run find:seeingfurther -- 4      # Just the four most recent posts
+```
+
+Posts are read through Substack's archive API and cached for the day. The report
+has four sections, each answering a different question:
+
+- **Sources we have no route to** — link hosts that match neither a cinema nor a
+  source. A host fronting several venues, or handing each one its own subdomain,
+  is a ticketing platform worth adding as a source; a host fronting one venue is
+  that venue running its own site. Listed whether or not we hold the venue,
+  because a venue we scrape can still sell a one-off hire somewhere we don't
+  look. Two rules keep this section honest in both directions: a platform
+  selling under a second TLD is the same platform (`eventbrite.com` is matched
+  by our `eventbrite.co.uk` source), while a host we hold for one venue does not
+  cover a listing naming a different one — Sands Films books through
+  `eventive.org` and three venues we hold list nothing but an Instagram page, so
+  neither host means we sweep it.
+- **Organisers missing from a source's list** — `tickettailor.com`, `ti.to` and
+  `thecliq.app` are not swept; each source retrieves a hand-maintained list of
+  organiser pages. A link to an organiser that isn't on the list otherwise looks
+  identical to a platform we already cover, so these are pulled out separately:
+  each one is a slug to add to that source's `retrieve.js`. The lists are read
+  out of the source files at runtime rather than copied here, so this cannot
+  drift away from them.
+- **Venues we don't know** — venue names that don't match any cinema we hold,
+  annotated with whether a source we scrape could still reach them.
+- **Venues we already know** — what matched, as a coverage check.
+
+Names that will never be a venue we hold — Canal Film Club's towpath, for
+instance — can be added to `reviewedVenues` in the script so each run shows only
+what is still outstanding.
 
 ### Map Generation
 
@@ -339,6 +382,34 @@ Missing films are split into two severities:
   failure driver — though the script still exits non-zero on any miss so CI
   surfaces the count.
 
+### LLM Usage Log
+
+```bash
+npm run llm-usage:find-run       # Resolve the transform run to collect
+npm run llm-usage:append-log -- <report-file> <log-file>
+```
+
+Turns the LLM usage report that `data-transformed` builds at the end of each
+transform run into a series. The report is uploaded there as a workflow
+artifact, which expires inside a fortnight and can only be read one run at a
+time; `data-transformed` dispatches each run's id here as its report job
+finishes, and the `LLM Usage Log` workflow appends that run's row to
+`llm-usage-log.jsonl`, published on this repository's `llm-usage-YYYYMM`
+release.
+
+One row per transform run, not per day - the pipeline is dispatched by each
+`data-retrieved` release and goes two to four times a day, so a day's figures
+are the sum of its rows. A row carries the run's call count, cache hit rate,
+tokens, estimated cost and per-call-site breakdown. The per-venue breakdown is
+not kept: it stays in the run's own artifact, which is where to look once the
+log says which run is worth looking at, and for as long as it lasts.
+
+Rows are keyed by run id, so re-collecting a run rewrites its row rather than
+adding a second one. A run that was missed - the dispatch never arrived, or a
+transform job failed so no report was produced - can be collected later by
+running the workflow manually, either with its `run-id` input or with none to
+take the newest run that still has a usable report.
+
 ## Data Files
 
 The `data/` directory contains reference data files:
@@ -363,6 +434,16 @@ package as a dependency. The scripts package provides:
   getCinemaAttributes, etc.)
 - `scripts/sources` - Event source access (getSourceDiscoverVenues, etc.)
 
-## License
+## Licence
 
-MIT
+The code in this repository is licensed under the [MIT licence](LICENSE).
+
+The releases are **not licensed at all**. They are internal telemetry:
+`health-log.jsonl`, one row per venue per hourly cycle behind the status panel
+on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
+row per transform run behind the LLM usage badge. No rights are granted over
+either, and their row shapes change without notice.
+
+For data you can use, see the
+[data licence](https://clusterflick.com/data-licence). The exact terms for this
+repository are in [LICENSE-DATA](LICENSE-DATA).

@@ -4,7 +4,7 @@ const https = require("https");
 
 const REPOS = ["data-retrieved", "data-transformed", "data-combined"];
 
-const PAT = process.env.PAT;
+const PAT = process.env.PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
