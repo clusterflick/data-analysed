@@ -1,5 +1,9 @@
 const slugify = require("slugify");
-const { fetchText, sanitizePathSegment } = require("scripts/common/utils");
+const {
+  fetchText,
+  fetchJson,
+  sanitizePathSegment,
+} = require("scripts/common/utils");
 const { isInLondon, getNullMapping, getAttributesFor } = require("./utils");
 
 const prefix = "cineworld.co.uk-";
@@ -8,12 +12,29 @@ const normalize = (value) =>
 
 async function checkCineworldIds() {
   const mainPage = await fetchText("https://www.cineworld.co.uk/");
-  const venueData = JSON.parse(
-    mainPage.match(/apiSitesList\s*=\s*(\[[^\]]+\]),/i)[1],
+
+  // Extract the CMS hash URL from the main page
+  const requestPrefix = mainPage.match(/src="([^"]+)webpack-runtime-/i)[1];
+  const pageData = await fetchJson(
+    `${requestPrefix}page-data/index/page-data.json`,
   );
 
+  let venueData = null;
+  // Run through all page data blobs until we find the ones we want to keep
+  for (const hash of pageData.staticQueryHashes) {
+    const url = `${requestPrefix}page-data/sq/d/${hash}.json`;
+    const data = await fetchJson(url);
+    if (data?.data?.allTheater?.nodes?.[0]?.__typename === "Theater") {
+      venueData = data.data.allTheater.nodes;
+    }
+  }
+
   const recorded = await getNullMapping(prefix);
-  for (let { externalCode: id, name, latitude, longitude } of venueData) {
+  for (let {
+    id,
+    name,
+    practicalInfo: { coordinates },
+  } of venueData) {
     name = normalize(name);
     const venue = `${prefix}${sanitizePathSegment(slugify(name))}`;
 
@@ -26,7 +47,7 @@ async function checkCineworldIds() {
           name: normalize(attributes.name),
         },
       };
-    } else if (await isInLondon(latitude, longitude)) {
+    } else if (await isInLondon(coordinates.latitude, coordinates.longitude)) {
       recorded[venue] = {
         retrieved: { id, name },
         current: {}, // We don't have this one!
