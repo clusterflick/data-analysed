@@ -272,6 +272,15 @@ jobs:
 
             ⚠️ **Internal telemetry — not licensed.** This drives the status panel on clusterflick.com and the venue health badge. No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
 
+      # Rebuilds manage.clusterflick.com, whose venues page leads with the
+      # sources failing as of the latest cycle - this one.
+      - name: Repository Dispatch for manage.clusterflick.com
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.PAT }}
+          repository: clusterflick/manage.clusterflick.com
+          event-type: venue_health
+
       - name: Publish badge
         if: always()
         env:
