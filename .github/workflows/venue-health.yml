@@ -110,9 +110,11 @@ jobs:
 
   # ------------------------------------------------------------------------------
   # Probes that need a browser, plus any that a datacentre IP gets blocked from.
-  # Cineworld needs no browser but sits behind Cloudflare: from a GitHub-hosted
-  # runner every one of its twelve venues came back `cf-mitigated` 403, on the
-  # retry as well as the first attempt. The residential IP clears it.
+  # Cineworld sits behind Cloudflare: from a GitHub-hosted runner every one of
+  # its twelve venues came back `cf-mitigated` 403, on the retry as well as the
+  # first attempt. The residential IP cleared it until 2026-09-23, when its API
+  # started refusing that too; the probe now falls back to making the call from
+  # a Cineworld page in Camoufox, which only a self-hosted runner has.
   # ------------------------------------------------------------------------------
   probe_self_hosted:
     name: Probe (self-hosted)
