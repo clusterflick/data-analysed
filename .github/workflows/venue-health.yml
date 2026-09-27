@@ -241,10 +241,38 @@ jobs:
           merge-multiple: true
           github-token: ${{ github.token }}
 
+      # Absent on the day's first cycle, which is not an error - the append
+      # script starts a new log when the file isn't there. But "absent" has to
+      # be established, not inferred from a failed download: this step used to
+      # be `continue-on-error`, so on 23 Sep a transient 404 fetching an asset
+      # that existed read as "first cycle", and the upload below replaced ten
+      # cycles with one. Only a release or asset that is genuinely missing
+      # starts a new log; anything else fails the job and leaves the day's log
+      # as it was - a lost cycle, rather than a lost day.
+      - name: Check for the day's log so far
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET: health-log.jsonl
+        run: |
+          if ! assets=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[].name' 2> "$RUNNER_TEMP/gh-error"); then
+            if grep -q "HTTP 404" "$RUNNER_TEMP/gh-error"; then
+              echo "No release $TAG yet - starting the day's log"
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/gh-error" >&2
+            exit 1
+          fi
+          if printf '%s\n' "$assets" | grep -qxF "$ASSET"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Release $TAG has no $ASSET - starting the day's log"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download the day's log so far
-        # Absent on the day's first cycle, which is not an error - the append
-        # script starts a new log when the file isn't there.
-        continue-on-error: true
+        if: steps.existing.outputs.exists == 'true'
         uses: clusterflick/release-downloader@v3
         with:
           token: ${{ secrets.PAT }}
