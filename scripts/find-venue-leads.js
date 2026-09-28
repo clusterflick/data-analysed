@@ -219,14 +219,23 @@ async function main() {
     return;
   }
 
+  // One unusable answer shouldn't cost the other few hundred assessments, so a
+  // venue that can't be assessed is set aside and named at the end - and the
+  // run still exits non-zero, so an incomplete report can't pass for a whole
+  // one.
   const leads = [];
+  const failures = [];
   for (const candidate of assessable) {
-    const assessment = await askLlmToAssessVenue({
-      name: candidate.venue.name,
-      address: candidate.address,
-      titles: candidate.titles,
-    });
-    leads.push({ ...candidate, assessment });
+    try {
+      const assessment = await askLlmToAssessVenue({
+        name: candidate.venue.name,
+        address: candidate.address,
+        titles: candidate.titles,
+      });
+      leads.push({ ...candidate, assessment });
+    } catch (error) {
+      failures.push({ candidate, error });
+    }
   }
 
   const usage = getLlmUsageLog();
@@ -267,6 +276,17 @@ async function main() {
       .map(([type, count]) => `${count} ${type}`)
       .join(", "),
   );
+
+  if (failures.length > 0) {
+    console.log(`\n❌ ${failures.length} venues could not be assessed:`);
+    for (const { candidate, error } of failures) {
+      console.log(
+        `   ${candidate.venue.name} (${candidate.sourceName}) - ${error.message}`,
+      );
+      if (candidate.url) console.log(`   ${candidate.url}`);
+    }
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {
