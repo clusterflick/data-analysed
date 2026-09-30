@@ -155,6 +155,16 @@ jobs:
 
             ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
 
+      # The append script writes a red badge when it fails, but a step before it
+      # failing means it never ran, no badge file exists, and the publish below
+      # fails on the missing file instead, leaving the last green badge up - what
+      # venue-health hit on 30 Sep. Only on failure: a green job with no badge
+      # file is a bug for the publish to report.
+      - name: Write failed badge
+        if: ${{ failure() && inputs.run-id == '' && hashFiles('output/llm-usage.json') == '' }}
+        run: |
+          node -e 'require("./scripts/common/badge").writeBadgeFile("llm-usage.json", { label: "llm usage", message: "collection failed", color: "red" })'
+
       - name: Publish badge
         # `always()` so a failed collection publishes the red badge rather than
         # leaving the last green one up. Skipped when a person named a run to

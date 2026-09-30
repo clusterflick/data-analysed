@@ -309,6 +309,16 @@ jobs:
           repository: clusterflick/manage.clusterflick.com
           event-type: venue_health
 
+      # The append script writes a red badge when it fails, but a step before it
+      # failing - on 30 Sep a transient error downloading the day's log - means
+      # it never ran, no badge file exists, and the publish below failed on the
+      # missing file instead, leaving the last green badge up. Only on failure:
+      # a green job with no badge file is a bug for the publish to report.
+      - name: Write failed badge
+        if: ${{ failure() && hashFiles('output/venue-health.json') == '' }}
+        run: |
+          node -e 'require("./scripts/common/badge").writeBadgeFile("venue-health.json", { label: "venue health", message: "cycle failed", color: "red" })'
+
       - name: Publish badge
         if: always()
         env:
