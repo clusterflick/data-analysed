@@ -1,0 +1,76 @@
+# Backs up the push that feeds the LLM usage log.
+#
+# data-transformed dispatches each transform run's id to LLM Usage Log as its
+# report job finishes. When that dispatch is lost - a GitHub Actions incident
+# on 5 Oct did it to a run with a perfectly good report - the run never reaches
+# the log, and its report artifact expires inside a fortnight. This looks for
+# runs that still have a usable report and no row, and dispatches LLM Usage Log
+# to backfill the oldest of them.
+#
+# One run per sweep: LLM Usage Log's concurrency group keeps a single pending
+# run, so dispatching several at once would cancel all but the last. Every
+# three hours clears a backlog long before artifacts expire, and a missed
+# collection is rare enough that a backlog of more than one is unusual.
+on:
+  schedule:
+    - cron: "41 */3 * * *"
+  workflow_dispatch:
+
+name: LLM Usage Sweep
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Sweep for Uncollected Runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # To dispatch LLM Usage Log in this repository.
+      actions: write
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # A collection in flight could be for a run the sweep is about to name,
+      # and a dispatch queued behind it would cancel any collection already
+      # pending. The next sweep is three hours away; it can wait for that.
+      - name: Check for a collection in progress
+        id: busy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          active=$(gh run list -R "$GITHUB_REPOSITORY" --workflow llm-usage-log.yml --limit 20 --json status --jq '[.[] | select(.status != "completed")] | length')
+          echo "active=$active" >> "$GITHUB_OUTPUT"
+          if [ "$active" != "0" ]; then
+            echo "LLM Usage Log has $active run(s) in flight - leaving this sweep to the next one"
+          fi
+
+      # No `npm install` - the script uses only the built-in fetch, like the
+      # collector's own find step.
+      - name: Find uncollected runs
+        id: find
+        if: steps.busy.outputs.active == '0'
+        env:
+          # Needs `actions: read` on data-transformed, the same as the
+          # collector - the runs and artifacts belong to another repository.
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: npm run llm-usage:find-uncollected
+
+      - name: Backfill the oldest
+        if: steps.find.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.find.outputs.run_id }}
+          COUNT: ${{ steps.find.outputs.count }}
+        run: |
+          gh workflow run llm-usage-log.yml -R "$GITHUB_REPOSITORY" -f run-id="$RUN_ID"
+          echo "Dispatched LLM Usage Log for run $RUN_ID ($COUNT uncollected)" >> "$GITHUB_STEP_SUMMARY"
