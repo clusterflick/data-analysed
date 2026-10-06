@@ -98,6 +98,10 @@ function buildRow(report, { runId, date, at }) {
     ...(metadata.modelsWithoutPricing && {
       modelsWithoutPricing: metadata.modelsWithoutPricing,
     }),
+    // Only present on a run where a transform group failed: the report then
+    // holds the venues that finished before it, and the row is a partial run
+    // rather than a cheap one. data-transformed names the groups that didn't.
+    ...(metadata.failedGroups && { failedGroups: metadata.failedGroups }),
     ...(metadata.largestPrompt && { largestPrompt: metadata.largestPrompt }),
     byCallSite: Object.fromEntries(
       Object.entries(byCallSite).map(([prefix, bucket]) => [
@@ -151,13 +155,15 @@ function totalsForDay(rows, date) {
     cacheHitRate: calls > 0 ? sum("cacheHits") / calls : 0,
     estimatedCostUsd: sum("estimatedCostUsd"),
     unpriced: forDay.some((row) => row.modelsWithoutPricing),
+    partial: forDay.some((row) => row.failedGroups),
   };
 }
 
 // Green only when today's figures are complete. Orange when the number on the
-// badge isn't today's, or when it's an undercount because a model had no
-// listed price - both are "this figure is not what it looks like", which is
-// worth saying rather than colouring green and hoping someone opens the log.
+// badge isn't today's, when it's an undercount because a model had no listed
+// price, or when one of the day's runs only partly finished - all "this figure
+// is not what it looks like", which is worth saying rather than colouring
+// green and hoping someone opens the log.
 //
 // No spend threshold: there's no baseline to set one from yet. Once the log
 // has a few weeks in it, a band around the usual daily cost belongs here.
@@ -177,12 +183,14 @@ function writeBadge(rows) {
     `${totals.runs} ${totals.runs === 1 ? "run" : "runs"}`,
   ];
   if (totals.unpriced) parts.push("cost incomplete");
+  if (totals.partial) parts.push("partial run");
   parts.push(stale ? `as of ${day}` : "today");
 
   writeBadgeFile("llm-usage.json", {
     label: "llm usage",
     message: parts.join(" · "),
-    color: stale || totals.unpriced ? "orange" : "brightgreen",
+    color:
+      stale || totals.unpriced || totals.partial ? "orange" : "brightgreen",
   });
 }
 
@@ -224,6 +232,11 @@ function main() {
   console.log(
     `  ${date} so far: ${day.runs} ${day.runs === 1 ? "run" : "runs"}, ${day.calls} calls, ${Math.round(day.cacheHitRate * 100)}% cached, $${day.estimatedCostUsd.toFixed(4)}`,
   );
+  if (row.failedGroups) {
+    console.log(
+      `  ⚠ Partial run - these groups did not finish: ${row.failedGroups.join(", ")}`,
+    );
+  }
   if (row.modelsWithoutPricing) {
     console.log(
       `  ⚠ No listed price for: ${row.modelsWithoutPricing.join(", ")} - the cost above excludes those calls`,

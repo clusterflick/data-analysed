@@ -343,6 +343,7 @@ otherwise produce false positives:
 ```bash
 npm run llm-usage:find-run       # Resolve the transform run to collect
 npm run llm-usage:append-log -- <report-file> <log-file>
+npm run llm-usage:find-uncollected  # Runs with a usable report but no row
 ```
 
 Turns the LLM usage report that `data-transformed` builds at the end of each
@@ -360,11 +361,17 @@ tokens, estimated cost and per-call-site breakdown. The per-venue breakdown is
 not kept: it stays in the run's own artifact, which is where to look once the
 log says which run is worth looking at, and for as long as it lasts.
 
+A transform run where a group failed still reports the venues that finished
+before it, and its row carries `failedGroups` naming the groups that didn't -
+a partial run, not a cheap one. The badge goes orange on a day with one.
+
 Rows are keyed by run id, so re-collecting a run rewrites its row rather than
-adding a second one. A run that was missed - the dispatch never arrived, or a
-transform job failed so no report was produced - can be collected later by
-running the workflow manually, either with its `run-id` input or with none to
-take the newest run that still has a usable report.
+adding a second one. The `LLM Usage Sweep` workflow backs up the dispatch:
+every three hours it looks for transform runs that still have a usable report
+but no row in their month's log, and dispatches `LLM Usage Log` to backfill the
+oldest. A run can also be collected by hand by running `LLM Usage Log` with its
+`run-id` input, or with none to take the newest run that still has a usable
+report.
 
 ## Data Files
 

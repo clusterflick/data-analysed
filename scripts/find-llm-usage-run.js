@@ -159,7 +159,22 @@ async function main() {
   output({ run_id: run.id, run_date: date, run_at: at, tag: tagFor(date) });
 }
 
-main().catch((error) => {
-  console.error(error.message || error);
-  process.exit(1);
-});
+// The sweep for runs that were never collected walks the same runs and asks
+// the same questions, so it borrows these rather than keeping its own copies.
+module.exports = {
+  ARTIFACT_NAME,
+  REPO,
+  WORKFLOW,
+  get,
+  hasUsableReport,
+  londonDate,
+  tagFor,
+  output,
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message || error);
+    process.exit(1);
+  });
+}
