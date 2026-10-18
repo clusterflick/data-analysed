@@ -254,22 +254,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ASSET: health-log.jsonl
-        run: |
-          if ! assets=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[].name' 2> "$RUNNER_TEMP/gh-error"); then
-            if grep -q "HTTP 404" "$RUNNER_TEMP/gh-error"; then
-              echo "No release $TAG yet - starting the day's log"
-              echo "exists=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            cat "$RUNNER_TEMP/gh-error" >&2
-            exit 1
-          fi
-          if printf '%s\n' "$assets" | grep -qxF "$ASSET"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Release $TAG has no $ASSET - starting the day's log"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: scripts/rolling-log.sh locate "$TAG" "$ASSET"
 
       - name: Download the day's log so far
         if: steps.existing.outputs.exists == 'true'
@@ -278,8 +263,15 @@ jobs:
           token: ${{ secrets.PAT }}
           repository: "clusterflick/data-analysed"
           tag: ${{ env.TAG }}
-          fileName: "health-log.jsonl"
+          fileName: ${{ steps.existing.outputs.name }}
           out-file-path: "output"
+
+      # Only differs when continuing from a publish that did not finish.
+      - name: Use the located log
+        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.name != 'health-log.jsonl'
+        env:
+          NAME: ${{ steps.existing.outputs.name }}
+        run: mv "output/$NAME" output/health-log.jsonl
 
       - name: Append this cycle
         run: npm run health:append-log -- health-data output/health-log.jsonl
@@ -287,9 +279,6 @@ jobs:
       - uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          replacesArtifacts: true
-          artifactErrorsFailBuild: true
-          artifacts: "output/health-log.jsonl"
           makeLatest: false
           tag: ${{ env.TAG }}
           commit: main
@@ -299,6 +288,14 @@ jobs:
             clusterflick/scripts for the row shape.
 
             ⚠️ **Internal telemetry — not licensed.** This drives the status panel on clusterflick.com and the venue health badge. No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+
+      # Not the release action's `replacesArtifacts`, which deletes the old log
+      # before uploading the new one - see scripts/rolling-log.sh.
+      - name: Publish the log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.TAG }}
+        run: scripts/rolling-log.sh publish "$TAG" health-log.jsonl output/health-log.jsonl
 
       # Rebuilds manage.clusterflick.com, whose venues page leads with the
       # sources failing as of the latest cycle - this one.
