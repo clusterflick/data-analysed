@@ -1,13 +1,24 @@
 // Folds one cycle's health rows into the day's rolling log.
 //
-// Usage: node scripts/append-health-log.js <health-data-dir> <log-file>
+// Usage: node scripts/append-health-log.js <health-data-dir> <log-file> <artifact>...
 //
-// Each probe writes `health-data/<group>` as a JSON array of rows. This appends
-// them to a JSONL file - one row per line - because the log is only ever
-// appended to and read back in order, and a line-delimited file can be extended
-// without parsing what is already there. The log file is expected to already
-// hold earlier cycles (the workflow downloads it from the day's release first);
-// if it is absent this is the day's first cycle and it starts empty.
+// Each probe writes `health-data/<group>` as a JSON array of rows, and each
+// probe job uploads its directory as one artifact. `<health-data-dir>` holds one
+// subdirectory per artifact that arrived, named after it, and `<artifact>...`
+// names every one the cycle should have produced. This appends the rows to a JSONL file - one row per line - because
+// the log is only ever appended to and read back in order, and a line-delimited
+// file can be extended without parsing what is already there. The log file is
+// expected to already hold earlier cycles (the workflow downloads it from the
+// day's release first); if it is absent this is the day's first cycle and it
+// starts empty.
+//
+// A missing artifact is a job's rows that never arrived, not a job that found
+// nothing. On 20 Oct a self-hosted job probed 43 venues and then lost its upload
+// to an ECONNRESET; the rows that did arrive were appended and the badge went
+// green, so the log held a cycle with four chains silently absent. The rows that
+// arrived are still appended - they are as true as ever - but the missing
+// artifacts are named in the badge, which goes red, and in `missing.txt` beside
+// the log, which the workflow fails the job on once the log is published.
 //
 // Each row is stamped with the cycle it arrived in. The probes can't do this -
 // every group starts its own observation and stamps its own `at`, so one cycle
@@ -18,11 +29,11 @@ const fs = require("fs");
 const path = require("path");
 const { writeBadgeFile } = require("./common/badge");
 
-const [, , healthDataDir, logFile] = process.argv;
+const [, , healthDataDir, logFile, ...expectedArtifacts] = process.argv;
 
-if (!healthDataDir || !logFile) {
+if (!healthDataDir || !logFile || expectedArtifacts.length === 0) {
   throw new Error(
-    "Usage: append-health-log.js <health-data-dir> <log-file>",
+    "Usage: append-health-log.js <health-data-dir> <log-file> <artifact>...",
   );
 }
 
@@ -33,11 +44,37 @@ if (!healthDataDir || !logFile) {
 // rows ever get here.
 const FAILURE_KINDS = new Set(["unknown-venue-id", "probe-error"]);
 
-function readRows(directory) {
-  if (!fs.existsSync(directory)) {
-    throw new Error(`No health data at ${directory}`);
+function readArtifacts(directory, expected) {
+  // Absent when no probe job uploaded anything: every artifact is missing.
+  const present = fs.existsSync(directory)
+    ? fs.readdirSync(directory).sort()
+    : [];
+
+  // Anything else here means the workflow and this list have drifted apart - a
+  // job renamed or added without its artifact being named - and rows read from
+  // an artifact nobody expects would hide the one that is now missing.
+  for (const name of present) {
+    if (!fs.statSync(path.join(directory, name)).isDirectory()) {
+      throw new Error(
+        `${name} in ${directory} is not an artifact directory - expected one subdirectory per artifact`,
+      );
+    }
+    if (!expected.includes(name)) {
+      throw new Error(
+        `Unexpected artifact ${name} in ${directory} - expected ${expected.join(", ")}`,
+      );
+    }
   }
 
+  const rows = [];
+  for (const name of present) {
+    rows.push(...readRows(path.join(directory, name)));
+  }
+  const missing = expected.filter((name) => !present.includes(name));
+  return { rows, missing };
+}
+
+function readRows(directory) {
   const rows = [];
   for (const filename of fs.readdirSync(directory).sort()) {
     const filePath = path.join(directory, filename);
@@ -64,7 +101,7 @@ function readRows(directory) {
 }
 
 function main() {
-  const rows = readRows(healthDataDir);
+  const { rows, missing } = readArtifacts(healthDataDir, expectedArtifacts);
   if (rows.length === 0) {
     // A cycle that probed nothing is a broken cycle, not an empty one - every
     // probe writes a row per venue even when it was challenged or had nothing on.
@@ -117,8 +154,19 @@ function main() {
       .join("\n"),
   );
 
-  // Red when a venue we track can't be observed at all; orange when the source
-  // itself pushed back; green only when every venue answered.
+  // Written whether or not anything is missing, so a stale file can't outlive
+  // the cycle that wrote it.
+  fs.writeFileSync(
+    path.join(path.dirname(logFile), "missing.txt"),
+    missing.map((name) => `${name}\n`).join(""),
+  );
+  if (missing.length > 0) {
+    console.log(`Missing artifacts: ${missing.join(", ")}`);
+  }
+
+  // Red when a venue we track can't be observed at all - a failing probe, or a
+  // job whose rows never arrived; orange when the source itself pushed back;
+  // green only when every venue answered.
   //
   // Challenged and empty are both amber but they are not the same thing - one is
   // the source blocking us, the other is the source telling us there is nothing
@@ -131,6 +179,7 @@ function main() {
   // reading green while a venue is missing would be saying something it does not
   // know. Named so a week of amber says which week it is.
   const aside = [
+    missing.length > 0 && `${missing.join(", ")} missing`,
     failures > 0 && `${failures} failing`,
     challenged > 0 && `${challenged} challenged`,
     maintenance > 0 && `${maintenance} in maintenance`,
@@ -145,7 +194,7 @@ function main() {
         ? `${healthy}/${rows.length} venues, ${aside.join(", ")}`
         : `${rows.length} venues`,
     color:
-      failures > 0
+      failures > 0 || missing.length > 0
         ? "red"
         : challenged + maintenance + noListings + closed > 0
           ? "orange"

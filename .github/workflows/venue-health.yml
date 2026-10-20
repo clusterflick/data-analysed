@@ -100,13 +100,36 @@ jobs:
 
       # Rows are written before a probe is allowed to fail the step, so this
       # uploads the evidence of a failed cycle as well as a healthy one.
+      #
+      # Retried once, here and in every probe job. upload-artifact retries a 5xx
+      # but throws on a socket error (ECONNRESET, ETIMEDOUT) at the first
+      # attempt, and on 20 Oct one reset at CreateArtifact cost a cycle 43
+      # venues' rows that had been probed fine. The first attempt is allowed to
+      # fail so the retry can run; the retry is not, so a second failure still
+      # fails the job. `overwrite` in case the first got as far as creating the
+      # artifact.
       - name: Upload health data
+        id: upload
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: health_hosted
           path: health-data/
           if-no-files-found: error
+
+      - name: Wait before retrying the upload
+        if: always() && steps.upload.outcome == 'failure'
+        run: sleep 30
+
+      - name: Retry health data upload
+        if: always() && steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_hosted
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
 
   # ------------------------------------------------------------------------------
   # Probes that need a browser, plus any that a datacentre IP gets blocked from.
@@ -142,12 +165,27 @@ jobs:
         run: npm run health -- odeon.co.uk
 
       - name: Upload health data
+        id: upload
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: health_self_hosted
           path: health-data/
           if-no-files-found: error
+
+      - name: Wait before retrying the upload
+        if: always() && steps.upload.outcome == 'failure'
+        run: sleep 30
+
+      - name: Retry health data upload
+        if: always() && steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_self_hosted
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
 
       # A bot challenge is recorded in the row, but the screenshot and page dump
       # are the only way to tell which flavour of block it was - see the Curzon
@@ -183,12 +221,27 @@ jobs:
         run: npm run health -- myvue.com
 
       - name: Upload health data
+        id: upload
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: health_vue
           path: health-data/
           if-no-files-found: error
+
+      - name: Wait before retrying the upload
+        if: always() && steps.upload.outcome == 'failure'
+        run: sleep 30
+
+      - name: Retry health data upload
+        if: always() && steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_vue
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
 
       - name: Save browser failure artifacts
         if: failure()
@@ -218,6 +271,10 @@ jobs:
     needs: [probe_hosted, probe_self_hosted, probe_vue]
     env:
       TZ: Europe/London
+      # Every artifact the probe jobs above upload - one per job. A new probe
+      # job's artifact goes here and gets a download step below, or the append
+      # can't tell its rows went missing.
+      HEALTH_ARTIFACTS: health_hosted health_self_hosted health_vue
     steps:
       - uses: clusterflick/.github/setup@main
 
@@ -226,19 +283,54 @@ jobs:
         # 24 releases a day would bury every other repo's in the timeline.
         run: echo "TAG=$(TZ=Europe/London date +'%Y%m%d')" >> $GITHUB_ENV
 
-      - name: Download this cycle's health data
+      # Which probe jobs got their rows uploaded - established from the run's
+      # artifact list, not inferred from a download failing, for the same reason
+      # as the day's log below: a transient error read as "missing" would drop
+      # rows that exist. A failed listing fails the job. A missing artifact
+      # doesn't; the append below names it and the last step fails on it, once
+      # the rows that did arrive are published.
+      - name: Check which probe jobs uploaded health data
+        id: uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          names=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.expired | not) | .name')
+          for name in $HEALTH_ARTIFACTS; do
+            if grep -qx "$name" <<< "$names"; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+      # One download per artifact, each into its own directory, so the append
+      # can tell which job's rows it holds. Not a `health_*` pattern:
+      # download-artifact extracts a pattern matching a single artifact flat,
+      # so the cycle where two uploads failed is the one the survivor's rows
+      # would arrive without saying whose they were. By name also keeps a
+      # failed probe's screenshot and page dump out - the append parses every
+      # file it is given as rows.
+      - name: Download health_hosted
+        if: steps.uploaded.outputs.health_hosted == 'true'
         uses: actions/download-artifact@v8
         with:
-          # Only the row artifacts. Without a pattern this takes every artifact
-          # in the run, and `merge-multiple` flattens them into one directory -
-          # so a browser probe's screenshot and page dump land beside the rows
-          # and the append below tries to parse a PNG as JSON. Those artifacts
-          # only exist when a probe failed, which is exactly the cycle the log
-          # most wants to keep, so the names are kept disjoint rather than
-          # relying on the append to skip them.
-          pattern: health_*
-          path: health-data/
-          merge-multiple: true
+          name: health_hosted
+          path: health-data/health_hosted
+          github-token: ${{ github.token }}
+
+      - name: Download health_self_hosted
+        if: steps.uploaded.outputs.health_self_hosted == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: health_self_hosted
+          path: health-data/health_self_hosted
+          github-token: ${{ github.token }}
+
+      - name: Download health_vue
+        if: steps.uploaded.outputs.health_vue == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: health_vue
+          path: health-data/health_vue
           github-token: ${{ github.token }}
 
       # Absent on the day's first cycle, which is not an error - the append
@@ -273,8 +365,9 @@ jobs:
           NAME: ${{ steps.existing.outputs.name }}
         run: mv "output/$NAME" output/health-log.jsonl
 
+      # Unquoted on purpose: one argument per artifact.
       - name: Append this cycle
-        run: npm run health:append-log -- health-data output/health-log.jsonl
+        run: npm run health:append-log -- health-data output/health-log.jsonl $HEALTH_ARTIFACTS
 
       - uses: ncipollo/release-action@v1
         with:
@@ -322,3 +415,12 @@ jobs:
           GIST_ID: 8d80a800fce80abc822d054b9e91ba0c
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: node scripts/publish-badge.js venue-health.json
+
+      # Last, so the rows that did arrive are published and the badge says what
+      # is missing before the job goes red for it.
+      - name: Fail on missing health data
+        run: |
+          if [ -s output/missing.txt ]; then
+            echo "::error::No health data arrived from: $(paste -sd, output/missing.txt)"
+            exit 1
+          fi
