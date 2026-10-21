@@ -101,13 +101,18 @@ jobs:
       # Rows are written before a probe is allowed to fail the step, so this
       # uploads the evidence of a failed cycle as well as a healthy one.
       #
-      # Retried once, here and in every probe job. upload-artifact retries a 5xx
-      # but throws on a socket error (ECONNRESET, ETIMEDOUT) at the first
+      # Retried twice, here and in every probe job. upload-artifact retries a
+      # 5xx but throws on a socket error (ECONNRESET, ETIMEDOUT) at the first
       # attempt, and on 20 Oct one reset at CreateArtifact cost a cycle 43
-      # venues' rows that had been probed fine. The first attempt is allowed to
-      # fail so the retry can run; the retry is not, so a second failure still
-      # fails the job. `overwrite` in case the first got as far as creating the
-      # artifact.
+      # venues' rows that had been probed fine. The resets come in spells
+      # rather than one at a time: on 21 Oct a self-hosted runner was reset 30s
+      # apart, while another runner on the same network uploaded between the
+      # two, and a re-run on the first ten minutes later went through. So the
+      # last attempt waits minutes, not seconds - a few minutes on a cycle is
+      # cheap beside losing its rows. Every attempt but the last is allowed to
+      # fail so the next can run; the last is not, so a third failure still
+      # fails the job. `overwrite` in case an earlier attempt got as far as
+      # creating the artifact.
       - name: Upload health data
         id: upload
         if: always()
@@ -123,7 +128,22 @@ jobs:
         run: sleep 30
 
       - name: Retry health data upload
+        id: retry
         if: always() && steps.upload.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_hosted
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Wait before the last upload attempt
+        if: always() && steps.retry.outcome == 'failure'
+        run: sleep 180
+
+      - name: Last health data upload attempt
+        if: always() && steps.retry.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: health_hosted
@@ -179,7 +199,22 @@ jobs:
         run: sleep 30
 
       - name: Retry health data upload
+        id: retry
         if: always() && steps.upload.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_self_hosted
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Wait before the last upload attempt
+        if: always() && steps.retry.outcome == 'failure'
+        run: sleep 180
+
+      - name: Last health data upload attempt
+        if: always() && steps.retry.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: health_self_hosted
@@ -235,7 +270,22 @@ jobs:
         run: sleep 30
 
       - name: Retry health data upload
+        id: retry
         if: always() && steps.upload.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: health_vue
+          path: health-data/
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Wait before the last upload attempt
+        if: always() && steps.retry.outcome == 'failure'
+        run: sleep 180
+
+      - name: Last health data upload attempt
+        if: always() && steps.retry.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: health_vue
