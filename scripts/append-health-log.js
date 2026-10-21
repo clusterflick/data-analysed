@@ -24,6 +24,13 @@
 // every group starts its own observation and stamps its own `at`, so one cycle
 // carries eight timestamps minutes apart - but the job folding them together
 // knows they are one sample, and without that the log can't be grouped.
+//
+// A cycle already in the log is replaced, not added to. The cycle is the run id,
+// which a re-run keeps, and re-running the failed jobs is how a cycle that lost
+// an upload is recovered: on 21 Oct the first attempt appended two jobs' rows,
+// the re-run appended all three, and 81 venues were in that cycle twice. The
+// artifacts of jobs that succeeded carry over to the re-run, so the rows it
+// arrives with are everything the earlier attempt had and more.
 
 const fs = require("fs");
 const path = require("path");
@@ -109,26 +116,19 @@ function main() {
   }
 
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  const existing = fs.existsSync(logFile)
-    ? fs.readFileSync(logFile, "utf8")
-    : "";
-  const previousCycles = existing
-    ? new Set(
-        existing
-          .trimEnd()
-          .split("\n")
-          .map((line) => JSON.parse(line).cycle),
-      )
-    : new Set();
-
   // The workflow run is the cycle. Falls back to a timestamp so a local run
   // still produces a groupable log.
   const cycle = process.env.GITHUB_RUN_ID ?? new Date().toISOString();
-  const lines = rows.map((row) => JSON.stringify({ cycle, ...row })).join("\n");
-  fs.writeFileSync(
-    logFile,
-    existing ? `${existing.trimEnd()}\n${lines}\n` : `${lines}\n`,
-  );
+
+  const existingLines = fs.existsSync(logFile)
+    ? fs.readFileSync(logFile, "utf8").trimEnd().split("\n").filter(Boolean)
+    : [];
+  const kept = existingLines.filter((line) => JSON.parse(line).cycle !== cycle);
+  const replaced = existingLines.length - kept.length;
+  const previousCycles = new Set(kept.map((line) => JSON.parse(line).cycle));
+
+  const lines = rows.map((row) => JSON.stringify({ cycle, ...row }));
+  fs.writeFileSync(logFile, `${[...kept, ...lines].join("\n")}\n`);
 
   const byKind = {};
   for (const { reason } of rows) {
@@ -147,6 +147,11 @@ function main() {
   console.log(
     `Appended ${rows.length} rows as cycle ${cycle} (${previousCycles.size} earlier ${previousCycles.size === 1 ? "cycle" : "cycles"} in the log)`,
   );
+  if (replaced > 0) {
+    console.log(
+      `Replaced ${replaced} rows an earlier attempt of this cycle appended`,
+    );
+  }
   console.log(
     Object.entries(byKind)
       .sort()
