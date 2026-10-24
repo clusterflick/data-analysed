@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { fetchWithRetry } = require("scripts/common/utils");
 
 const API_URL =
   "https://europe-west2-cinema-viewer1.cloudfunctions.net/api/getScreenings";
@@ -84,7 +85,7 @@ const VENUES = [
 async function main() {
   console.log(`Fetching screenings for ${VENUES.length} venues...`);
 
-  const res = await fetch(API_URL, {
+  const res = await fetchWithRetry(API_URL, {
     method: "POST",
     headers: {
       "User-Agent":

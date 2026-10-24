@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { isInLondon } = require("./utils");
+const { fetchWithRetry } = require("scripts/common/utils");
 
 // ---------------------------------------------------------------------------
 // UKCA (Accessible Screenings UK) data source
@@ -31,7 +32,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
 
 async function graphql(query, variables) {
-  const res = await fetch(API_URL, {
+  const res = await fetchWithRetry(API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
