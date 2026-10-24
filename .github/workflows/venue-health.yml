@@ -22,13 +22,8 @@ jobs:
   # ------------------------------------------------------------------------------
   # Probes that run fine from a GitHub-hosted runner
   # ------------------------------------------------------------------------------
-  # Castle, Admit One and Omniplex retrieve from a self-hosted runner, which is
-  # not an argument for probing from one: data-retrieved buckets every
-  # standalone venue into `retrieve_remaining_cinemas_*`, self-hosted with a
-  # browser for the whole job rather than per venue. None of these probes opens
-  # one, and princecharlescinema.com sits in that same bucket and probes from
-  # here. Electric and Olympic Studios need no such argument - they retrieve
-  # from a GitHub-hosted runner already.
+  # Every venue probed here also retrieves from a GitHub-hosted runner in
+  # data-retrieved, so a datacentre IP is known to get through.
   probe_hosted:
     name: Probe (GitHub-hosted)
     runs-on: ubuntu-latest
