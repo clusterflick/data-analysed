@@ -1,0 +1,130 @@
+# Records the 5G router's data counters - how much the self-hosted runners
+# have pulled down - into a rolling monthly log.
+#
+# Triggered hourly by an external cron rather than GitHub's scheduler, the same
+# way venue-health and data-retrieved are: `schedule` starts late and drops runs
+# under load. Hourly rather than once a day because the router only keeps a
+# running total for its month, so a day's usage is the difference between two
+# readings - a reading every hour makes a late or missed one cost an hour's
+# resolution, not the day, and gives an hourly breakdown for free.
+on:
+  workflow_dispatch:
+
+name: Bandwidth Log
+
+permissions:
+  contents: read
+
+# The log is appended in place: the collect job reads the month's release
+# asset, adds the reading and writes it back. Two overlapping would lose one,
+# so they queue instead of cancelling.
+concurrency:
+  group: bandwidth-log
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read router counters
+    # Only a runner on the home network can reach the router. When every runner
+    # is busy retrieving this waits its turn - the reading is timestamped when
+    # it is taken, so a late one is still placed correctly.
+    runs-on: self-hosted
+    timeout-minutes: 5
+    # The router credentials are environment secrets, released only to runs
+    # from main (the environment's branch rule, set in the repository's
+    # settings where a branch can't edit it). No required reviewer, unlike
+    # data-retrieved's `router` environment: this runs every hour unattended.
+    # The account can still restart the router - it is the only one there is -
+    # so the branch rule is what keeps a branch from doing anything else with
+    # it.
+    environment: router-read
+    outputs:
+      row: ${{ steps.read.outputs.row }}
+      tag: ${{ steps.read.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # Built-in modules only, so no install on the runner.
+      - name: Read the counters
+        id: read
+        env:
+          ROUTER_USERNAME: ${{ secrets.ROUTER_USERNAME }}
+          ROUTER_PASSWORD: ${{ secrets.ROUTER_PASSWORD }}
+        run: node scripts/read-router-usage.js
+
+  # A hosted runner holds the write token, so the self-hosted one never does,
+  # and the job with the router credentials never holds `contents: write`.
+  collect:
+    name: Append to the log
+    needs: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # Absent on the month's first reading, which is not an error. Established
+      # rather than inferred from a failed download - see rolling-log.sh.
+      - name: Check for the month's log so far
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.read.outputs.tag }}
+        run: scripts/rolling-log.sh locate "$TAG" bandwidth-log.jsonl
+
+      - name: Download the month's log so far
+        if: steps.existing.outputs.exists == 'true'
+        uses: clusterflick/release-downloader@v4
+        with:
+          token: ${{ secrets.PAT }}
+          repository: "clusterflick/data-analysed"
+          tag: ${{ needs.read.outputs.tag }}
+          fileName: ${{ steps.existing.outputs.name }}
+          out-file-path: "output"
+
+      # Only differs when continuing from a publish that did not finish.
+      - name: Use the located log
+        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.name != 'bandwidth-log.jsonl'
+        env:
+          NAME: ${{ steps.existing.outputs.name }}
+        run: mv "output/$NAME" output/bandwidth-log.jsonl
+
+      - name: Append the reading
+        env:
+          ROW: ${{ needs.read.outputs.row }}
+        run: node scripts/append-bandwidth-log.js output/bandwidth-log.jsonl
+
+      # A release a month, like llm-usage-YYYYMM.
+      - uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          makeLatest: false
+          omitBodyDuringUpdate: true
+          tag: ${{ needs.read.outputs.tag }}
+          commit: main
+          body: |
+            Data usage on the 5G router the self-hosted runners share, a month to a release.
+            One JSON row per hourly reading of the router's running total for its month -
+            a day's usage is the difference between readings. See
+            scripts/read-router-usage.js for the row shape.
+
+            ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+
+      - name: Publish the log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.read.outputs.tag }}
+        run: scripts/rolling-log.sh publish "$TAG" bandwidth-log.jsonl output/bandwidth-log.jsonl

@@ -49,6 +49,9 @@
     "llm-usage:find-run": "node scripts/find-llm-usage-run.js",
     "llm-usage:append-log": "node scripts/append-llm-usage-log.js",
     "llm-usage:find-uncollected": "node scripts/find-uncollected-llm-usage-runs.js",
+    "bandwidth:read-router": "node scripts/read-router-usage.js",
+    "bandwidth:append-log": "node scripts/append-bandwidth-log.js",
+    "bandwidth:import-smarty": "node scripts/import-smarty-usage.js",
     "health": "TZ=Europe/London node node_modules/scripts/index.js health",
     "health:append-log": "node scripts/append-health-log.js",
     "health:analyse-log": "node scripts/analyse-health-log.js"
