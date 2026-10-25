@@ -373,6 +373,34 @@ oldest. A run can also be collected by hand by running `LLM Usage Log` with its
 `run-id` input, or with none to take the newest run that still has a usable
 report.
 
+### Bandwidth Log
+
+```bash
+npm run bandwidth:read-router                      # Read the router's counters (home network only)
+ROW='<json>' npm run bandwidth:append-log -- <log-file>
+npm run bandwidth:import-smarty -- [--dry-run] <history.json>...
+```
+
+Tracks how much data the self-hosted runners use on the 5G router they share.
+The `Bandwidth Log` workflow is dispatched hourly by an external cron: a job on
+a self-hosted runner logs in to the router and reads its running total for the
+month, and a hosted job appends that reading to `bandwidth-log.jsonl` on this
+repository's `bandwidth-YYYYMM` release. The router credentials are secrets on
+the `router-read` environment, released only to runs from `main`.
+
+The log holds totals, not usage: one row per reading, with the bytes down and
+up so far in the router's month. A day's usage is the difference between
+readings, worked out by manage.clusterflick.com, which also handles the counter
+resetting at the start of the router's month or on a restart. A late or missed
+reading costs an hour's resolution, not the day.
+
+The days before the first reading come from Smarty's own usage history,
+imported by hand with `bandwidth:import-smarty` from pages of
+`https://smarty.co.uk/api/v2/history/data` saved with a logged-in token (which
+lasts a week, so this can't run unattended). The merged history is
+`smarty-usage.json` on the `bandwidth-smarty` release; importing a day again
+replaces it.
+
 ## Data Files
 
 The `data/` directory contains reference data files:
@@ -404,8 +432,9 @@ The code in this repository is licensed under the [MIT licence](LICENSE).
 The releases are **not licensed at all**. They are internal telemetry:
 `health-log.jsonl`, one row per venue per hourly cycle behind the status panel
 on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
-row per transform run behind the LLM usage badge. No rights are granted over
-either, and their row shapes change without notice.
+row per transform run behind the LLM usage badge, and the bandwidth log and its
+Smarty seed. No rights are granted over any of them, and their row shapes change
+without notice.
 
 For data you can use, see the
 [data licence](https://clusterflick.com/data-licence). The exact terms for this
