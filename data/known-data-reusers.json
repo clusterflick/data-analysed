@@ -1,0 +1,8 @@
+{
+  "aduncan2/london-film-data": "WhatsPlaying's data feed: every data-transformed venue file, venue records from clusterflick/scripts",
+  "joshmackwell19/letterboxd-watchlist": "Personal watchlist dashboard: four venues' listings, plus our TMDB ids for seven more",
+  "jpjagt/cartelita": "Cartelita: 20 cinemas from data-transformed, addresses copied once from data-combined",
+  "kabirhusain/london-listings": "London listings feed: seven cinemas from data-transformed",
+  "Komsomol/pichouse-ssr": "PicHouse: bfi.org.uk-imax from data-transformed",
+  "will-clarke/classiccult": "ClassicCult: BFI Southbank from combined-data.json"
+}

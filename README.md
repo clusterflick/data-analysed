@@ -401,6 +401,28 @@ lasts a week, so this can't run unattended). The merged history is
 `smarty-usage.json` on the `bandwidth-smarty` release; importing a day again
 replaces it.
 
+### Data Reusers
+
+```bash
+SEARCH_TOKEN=<personal token> npm run find:data-reusers   # Report only
+```
+
+Looks for public GitHub repositories that build on Clusterflick, by searching
+code for the addresses reusers put in it: the `data-transformed`,
+`data-combined`, `data-matched` and `data-calendar` releases,
+`clusterflick.com/datasets`, and `clusterflick/scripts`. The `Find Data
+Reusers` workflow runs it every Monday and opens an issue on this repository
+for each new one.
+
+A repository is new when it is neither in `data/known-data-reusers.json`, the
+ones found by hand before this existed, nor the subject of an issue here, open
+or closed. Closing the issue is how a find is acknowledged; the list doesn't
+need updating.
+
+It only sees public GitHub code on a repository's default branch. Sites with
+closed code, or that read `clusterflick.com/datasets/` without committing the
+address, never show up here.
+
 ## Data Files
 
 The `data/` directory contains reference data files:
@@ -409,6 +431,7 @@ The `data/` directory contains reference data files:
 - `openstreetmap.json` - Cinema data exported from OpenStreetMap
 - `mycommunitycinema.json` - Cinema data from MyCommunity Cinema
 - `independentcinemaoffice.json` - Cinema data from Independent Cinema Office
+- `known-data-reusers.json` - Repositories found building on Clusterflick before the `Find Data Reusers` workflow, so it reports them as known
 
 ## Dependencies
 
