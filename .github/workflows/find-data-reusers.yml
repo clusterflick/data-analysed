@@ -1,0 +1,42 @@
+# Looks for public repositories building on Clusterflick's code or releases,
+# and opens an issue for each new one (see scripts/find-data-reusers.js).
+#
+# GitHub's scheduler is fine here, unlike the logs that use an external cron:
+# new reusers turn up over weeks, so a late or dropped run only delays a find
+# to the next one.
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+name: Find Data Reusers
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    name: Find Data Reusers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # No `npm install` - the script uses only the built-in fetch.
+      - name: Find reusers
+        env:
+          # Code search across other people's repositories needs a personal
+          # token; Actions' own token only reaches this repository.
+          SEARCH_TOKEN: ${{ secrets.PAT }}
+          ISSUES_TOKEN: ${{ github.token }}
+        run: npm run find:data-reusers
