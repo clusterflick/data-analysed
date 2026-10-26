@@ -21,6 +21,11 @@
 // A release's month is the London month it was published in, as the LLM usage
 // log's is. A run straddling midnight on the 1st touches two months' logs.
 //
+// Read through the GraphQL API, which returns only the three fields a row
+// needs. The REST listing returns every release with all of its assets - ~450
+// a release - so a page of 100 timed out with a 504, and even a normal run's
+// 30 meant downloading ~13,500 asset records to read 30 timestamps.
+//
 // Uses only the built-in fetch (Node 18+); no npm deps, so the workflow can run
 // this without an install step - same as workflow-run-stats.js.
 
@@ -38,32 +43,66 @@ const DATASETS = [
 ];
 
 // The pipeline releases each dataset one to four times a day, so the last 30
-// covers a week or more of lost dispatches. Also the page size for a backfill:
-// each release carries ~450 assets, every one in the listing, and a page of
-// 100 releases times out with a 504.
-const PAGE_SIZE = 30;
-// A 5xx listing a page that heavy is GitHub running out of time, not an answer.
+// covers a week or more of lost dispatches. A backfill pages through the rest
+// at GraphQL's maximum.
+const RECENT = 30;
+const PAGE_SIZE = 100;
+// A 5xx is GitHub failing to answer, not an answer
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
+
+const RELEASES_QUERY = `
+  query ($owner: String!, $name: String!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      releases(
+        first: $first
+        after: $after
+        orderBy: { field: CREATED_AT, direction: DESC }
+      ) {
+        nodes {
+          tagName
+          publishedAt
+          isDraft
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
 
 const [, , pendingDir] = process.argv;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function get(url, description) {
+async function query(variables, description) {
   for (let attempt = 1; ; attempt += 1) {
-    const res = await fetch(url, {
+    const res = await fetch("https://api.github.com/graphql", {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${TOKEN}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
         "User-Agent": "clusterflick-data-analysed",
       },
+      body: JSON.stringify({ query: RELEASES_QUERY, variables }),
     });
 
-    if (res.ok) return res.json();
+    if (res.ok) {
+      const body = await res.json();
+      // GraphQL reports a failed query with a 200 and an `errors` list - a
+      // misnamed repository, a token without access - so a 200 alone isn't
+      // an answer.
+      if (body.errors?.length) {
+        throw new Error(
+          `GitHub GraphQL API returned errors for ${description}: ${body.errors.map((error) => error.message).join("; ")}`,
+        );
+      }
+      return body.data;
+    }
 
-    const message = `GitHub API returned ${res.status} ${res.statusText} for ${description}`;
+    const message = `GitHub GraphQL API returned ${res.status} ${res.statusText} for ${description}`;
     if (res.status < 500 || attempt === MAX_ATTEMPTS) throw new Error(message);
     console.error(`${message} - retrying`);
     await sleep(RETRY_DELAY_MS * attempt);
@@ -71,15 +110,18 @@ async function get(url, description) {
 }
 
 async function listReleases(repository) {
+  const [owner, name] = repository.split("/");
   const releases = [];
 
-  for (let page = 1; ; page += 1) {
-    const batch = await get(
-      `https://api.github.com/repos/${repository}/releases?per_page=${PAGE_SIZE}&page=${page}`,
+  for (let after = null, page = 1; ; page += 1) {
+    const data = await query(
+      { owner, name, first: BACKFILL ? PAGE_SIZE : RECENT, after },
       `${repository} releases page ${page}`,
     );
-    releases.push(...batch);
-    if (!BACKFILL || batch.length < PAGE_SIZE) break;
+    const { nodes, pageInfo } = data.repository.releases;
+    releases.push(...nodes);
+    if (!BACKFILL || !pageInfo.hasNextPage) break;
+    after = pageInfo.endCursor;
   }
 
   return releases;
@@ -98,16 +140,16 @@ const londonMonth = (date) => {
 function toRow(dataset, release) {
   // A release without these is not one this log can place in time, and
   // skipping it would leave a gap that reads as a missed day.
-  if (!release.tag_name || !release.published_at) {
+  if (!release.tagName || !release.publishedAt) {
     throw new Error(
-      `${dataset.repository} release ${release.id} has no tag or publish time`,
+      `${dataset.repository} release ${release.tagName ?? "(no tag)"} has no tag or publish time`,
     );
   }
   return {
     dataset: dataset.key,
     repository: dataset.repository,
-    tag: release.tag_name,
-    publishedAt: release.published_at,
+    tag: release.tagName,
+    publishedAt: release.publishedAt,
   };
 }
 
@@ -133,7 +175,7 @@ async function main() {
     const releases = await listReleases(dataset.repository);
     // Drafts are listed to a token that can push and have no publish time;
     // they haven't been released.
-    const published = releases.filter((release) => !release.draft);
+    const published = releases.filter((release) => !release.isDraft);
     for (const release of published) {
       const row = toRow(dataset, release);
       const tag = `release-log-${londonMonth(new Date(row.publishedAt))}`;
@@ -141,7 +183,7 @@ async function main() {
       byMonth.get(tag).push(row);
     }
     console.error(
-      `${dataset.repository}: ${published.length} release(s)${BACKFILL ? "" : ` (most recent ${PAGE_SIZE})`}`,
+      `${dataset.repository}: ${published.length} release(s)${BACKFILL ? "" : ` (most recent ${RECENT})`}`,
     );
   }
 
