@@ -373,6 +373,28 @@ oldest. A run can also be collected by hand by running `LLM Usage Log` with its
 `run-id` input, or with none to take the newest run that still has a usable
 report.
 
+### Release Log
+
+```bash
+GH_TOKEN=<token> node scripts/find-dataset-releases.js <pending-dir>
+node scripts/append-release-log.js <rows-file> <log-file>
+```
+
+A record of every release of the two datasets clusterflick.com publishes for
+reuse, `data-transformed` and `data-calendar`: one row per release,
+`{ dataset, repository, tag, publishedAt }`, in `release-log.jsonl` on this
+repository's `release-log-YYYYMM` release (the London month it was published
+in). clusterflick.com reads every month's log at build time for its data
+status page.
+
+`data-transformed` and `data-calendar` dispatch the `Release Log` workflow as
+they publish. The dispatch carries nothing: each run lists both repositories'
+30 most recent releases and adds any the log doesn't have, so a lost dispatch
+or a failed run is caught up by the next release. Rows are keyed by repository
+and tag; a logged release whose publish time has since changed fails the run
+rather than being rewritten. Running the workflow by hand with `backfill` lists
+every release instead - how the log was first filled.
+
 ### Bandwidth Log
 
 ```bash
@@ -455,8 +477,9 @@ The code in this repository is licensed under the [MIT licence](LICENSE).
 The releases are **not licensed at all**. They are internal telemetry:
 `health-log.jsonl`, one row per venue per hourly cycle behind the status panel
 on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
-row per transform run behind the LLM usage badge, and the bandwidth log and its
-Smarty seed. No rights are granted over any of them, and their row shapes change
+row per transform run behind the LLM usage badge, `release-log.jsonl`, one row
+per dataset release behind the data status page on clusterflick.com, and the
+bandwidth log and its Smarty seed. No rights are granted over any of them, and their row shapes change
 without notice.
 
 For data you can use, see the
