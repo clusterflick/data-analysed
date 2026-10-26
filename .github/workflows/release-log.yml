@@ -1,0 +1,110 @@
+# Records every release of the two datasets clusterflick.com publishes for reuse
+# - data-transformed and data-calendar - into a rolling monthly log.
+#
+# The log is what clusterflick.com's data status page is built from: how long
+# the datasets have been released, how many releases there have been, the days
+# with one, and the time of day they land. The GitHub releases are the source;
+# this is their record, so the history outlives a release being deleted and
+# the site reads one small file a month rather than paging through both
+# repositories' release lists on every build.
+#
+# Fired by each dataset repository as it publishes a release. The dispatch
+# carries nothing: every run lists both repositories' most recent releases and
+# logs any it hasn't seen, so a dispatch lost to a GitHub incident, or a run
+# that failed, is caught up by the next release rather than by a sweep. The
+# concurrency group keeps one pending run and cancels older pending ones, which
+# loses nothing for the same reason.
+#
+# Run by hand with `backfill` to list every release rather than the most
+# recent - how the log was first filled, and how to rebuild it.
+on:
+  repository_dispatch:
+    types: [release_log]
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "List every release of both datasets, not just the most recent"
+        type: boolean
+        default: false
+
+name: Release Log
+
+permissions:
+  contents: read
+
+# Appended in place: each month's log is read, added to and written back. Two
+# overlapping would lose one, so they queue instead of cancelling.
+concurrency:
+  group: release-log
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect Dataset Releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TZ: Europe/London
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # No `npm install` - both scripts use only built-in modules, so this
+      # stays a handful of API calls rather than a dependency install.
+      - name: List the dataset releases
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          BACKFILL: ${{ inputs.backfill }}
+        run: node scripts/find-dataset-releases.js pending
+
+      # One month at a time, as the other logs are: locate the month's log (its
+      # absence established, never inferred - see rolling-log.sh), add the new
+      # releases, and publish only if something was added. A loop rather than
+      # steps, because a backfill touches every month since February 2025.
+      - name: Append to each month's log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ steps.find.outputs.tags }}
+        run: |
+          set -euo pipefail
+          for tag in $TAGS; do
+            echo "::group::$tag"
+            dir="output/$tag"
+            mkdir -p "$dir"
+
+            located=$(mktemp)
+            GITHUB_OUTPUT="$located" scripts/rolling-log.sh locate "$tag" release-log.jsonl
+            exists=$(sed -n 's/^exists=//p' "$located")
+            name=$(sed -n 's/^name=//p' "$located")
+            if [ "$exists" = "true" ]; then
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$dir"
+              if [ "$name" != "release-log.jsonl" ]; then
+                mv "$dir/$name" "$dir/release-log.jsonl"
+              fi
+            fi
+
+            appended=$(mktemp)
+            GITHUB_OUTPUT="$appended" node scripts/append-release-log.js "pending/$tag.json" "$dir/release-log.jsonl"
+            if [ "$(sed -n 's/^changed=//p' "$appended")" = "true" ]; then
+              # The month's first release creates its tag. Absence established
+              # as rolling-log.sh does: only a 404 creates, anything else fails.
+              if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > /dev/null 2> "$RUNNER_TEMP/gh-error"; then
+                if ! grep -q "HTTP 404" "$RUNNER_TEMP/gh-error"; then
+                  cat "$RUNNER_TEMP/gh-error" >&2
+                  exit 1
+                fi
+                gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+                  --target main --latest=false \
+                  --title "$tag" --notes-file .github/release-log-notes.md
+              fi
+              scripts/rolling-log.sh publish "$tag" release-log.jsonl "$dir/release-log.jsonl"
+            fi
+            echo "::endgroup::"
+          done
