@@ -38,42 +38,48 @@ const DATASETS = [
 ];
 
 // The pipeline releases each dataset one to four times a day, so the last 30
-// covers a week or more of lost dispatches.
-const RECENT = 30;
-const PAGE_SIZE = 100;
+// covers a week or more of lost dispatches. Also the page size for a backfill:
+// each release carries ~450 assets, every one in the listing, and a page of
+// 100 releases times out with a 504.
+const PAGE_SIZE = 30;
+// A 5xx listing a page that heavy is GitHub running out of time, not an answer.
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 5000;
 
 const [, , pendingDir] = process.argv;
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function get(url, description) {
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "clusterflick-data-analysed",
-    },
-  });
+  for (let attempt = 1; ; attempt += 1) {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "clusterflick-data-analysed",
+      },
+    });
 
-  if (!res.ok) {
-    throw new Error(
-      `GitHub API returned ${res.status} ${res.statusText} for ${description}`,
-    );
+    if (res.ok) return res.json();
+
+    const message = `GitHub API returned ${res.status} ${res.statusText} for ${description}`;
+    if (res.status < 500 || attempt === MAX_ATTEMPTS) throw new Error(message);
+    console.error(`${message} - retrying`);
+    await sleep(RETRY_DELAY_MS * attempt);
   }
-
-  return res.json();
 }
 
 async function listReleases(repository) {
-  const perPage = BACKFILL ? PAGE_SIZE : RECENT;
   const releases = [];
 
   for (let page = 1; ; page += 1) {
     const batch = await get(
-      `https://api.github.com/repos/${repository}/releases?per_page=${perPage}&page=${page}`,
+      `https://api.github.com/repos/${repository}/releases?per_page=${PAGE_SIZE}&page=${page}`,
       `${repository} releases page ${page}`,
     );
     releases.push(...batch);
-    if (!BACKFILL || batch.length < perPage) break;
+    if (!BACKFILL || batch.length < PAGE_SIZE) break;
   }
 
   return releases;
@@ -135,7 +141,7 @@ async function main() {
       byMonth.get(tag).push(row);
     }
     console.error(
-      `${dataset.repository}: ${published.length} release(s)${BACKFILL ? "" : ` (most recent ${RECENT})`}`,
+      `${dataset.repository}: ${published.length} release(s)${BACKFILL ? "" : ` (most recent ${PAGE_SIZE})`}`,
     );
   }
 
