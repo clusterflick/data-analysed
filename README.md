@@ -1,4 +1,12 @@
-# Cinema Analysis Scripts
+# data-analysed
+
+> **[Clusterflick](https://clusterflick.com)** is a free, open-source site
+> listing every film showing in London, from 450+ venues in one search.
+>
+> This repository holds the analysis scripts that find new venues, check the
+> listings against other sources and track how reliably the pipeline runs. See
+> the [Clusterflick organisation](https://github.com/clusterflick) for how the
+> pieces fit together.
 
 This repository contains scripts for analyzing and validating cinema data for
 the Clusterflick project. These scripts help discover new venues, validate
