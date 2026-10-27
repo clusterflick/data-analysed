@@ -79,10 +79,10 @@ npm run discover:ticketsource    # Discover venues from TicketSource
 ### Venue Name Mismatches
 
 Venue matching needs both the name and the location to agree, so a venue we
-already know about is dropped whenever a platform lists it under a name we
-don't hold. This script runs every source's venue discovery and reports the
-venues that were rejected on name alone — they sit at a known cinema, but none
-of that cinema's names match:
+already know about is dropped whenever a platform lists it under a name we don't
+hold. This script runs every source's venue discovery and reports the venues
+that were rejected on name alone — they sit at a known cinema, but none of that
+cinema's names match:
 
 ```bash
 npm run find:venue-name-mismatches                    # All sources
@@ -99,11 +99,11 @@ Options:
 
 - `--max-distance=<km>` — how close a venue must be to count as the same place
   (default `0.05`). The matcher itself allows `0.35`, but that only holds up
-  once a name has agreed: reversed, it puts every central London venue next to
-  a dozen cinemas.
+  once a name has agreed: reversed, it puts every central London venue next to a
+  dozen cinemas.
 - `--include-postcode-area` — also report venues sharing only an outward code
-  (`E11`) with a cinema. A district is not a building, so these need checking
-  by hand.
+  (`E11`) with a cinema. A district is not a building, so these need checking by
+  hand.
 
 Reads `retrieved-data/`, which is populated by
 `./scripts/get-latest-retrieved-data.sh`.
@@ -370,16 +370,15 @@ not kept: it stays in the run's own artifact, which is where to look once the
 log says which run is worth looking at, and for as long as it lasts.
 
 A transform run where a group failed still reports the venues that finished
-before it, and its row carries `failedGroups` naming the groups that didn't -
-a partial run, not a cheap one. The badge goes orange on a day with one.
+before it, and its row carries `failedGroups` naming the groups that didn't - a
+partial run, not a cheap one. The badge goes orange on a day with one.
 
 Rows are keyed by run id, so re-collecting a run rewrites its row rather than
-adding a second one. The `LLM Usage Sweep` workflow backs up the dispatch:
-every three hours it looks for transform runs that still have a usable report
-but no row in their month's log, and dispatches `LLM Usage Log` to backfill the
-oldest. A run can also be collected by hand by running `LLM Usage Log` with its
-`run-id` input, or with none to take the newest run that still has a usable
-report.
+adding a second one. The `LLM Usage Sweep` workflow backs up the dispatch: every
+three hours it looks for transform runs that still have a usable report but no
+row in their month's log, and dispatches `LLM Usage Log` to backfill the oldest.
+A run can also be collected by hand by running `LLM Usage Log` with its `run-id`
+input, or with none to take the newest run that still has a usable report.
 
 ### Release Log
 
@@ -392,16 +391,16 @@ A record of every release of the two datasets clusterflick.com publishes for
 reuse, `data-transformed` and `data-calendar`: one row per release,
 `{ dataset, repository, tag, publishedAt }`, in `release-log.jsonl` on this
 repository's `release-log-YYYYMM` release (the London month it was published
-in). clusterflick.com reads every month's log at build time for its data
-status page.
+in). clusterflick.com reads every month's log at build time for its data status
+page.
 
 `data-transformed` and `data-calendar` dispatch the `Release Log` workflow as
-they publish. The dispatch carries nothing: each run lists both repositories'
-30 most recent releases and adds any the log doesn't have, so a lost dispatch
-or a failed run is caught up by the next release. Rows are keyed by repository
-and tag; a logged release whose publish time has since changed fails the run
-rather than being rewritten. Running the workflow by hand with `backfill` lists
-every release instead - how the log was first filled.
+they publish. The dispatch carries nothing: each run lists both repositories' 30
+most recent releases and adds any the log doesn't have, so a lost dispatch or a
+failed run is caught up by the next release. Rows are keyed by repository and
+tag; a logged release whose publish time has since changed fails the run rather
+than being rewritten. Running the workflow by hand with `backfill` lists every
+release instead - how the log was first filled.
 
 ### Bandwidth Log
 
@@ -418,14 +417,14 @@ month, and a hosted job appends that reading to `bandwidth-log.jsonl` on this
 repository's `bandwidth-YYYYMM` release. The router credentials are secrets on
 the `router-read` environment, released only to runs from `main`.
 
-The log holds totals, not usage: one row per reading, with the bytes down and
-up so far in the router's month. A day's usage is the difference between
-readings, worked out by manage.clusterflick.com, which also handles the counter
-resetting at the start of the router's month or on a restart. A late or missed
-reading costs an hour's resolution, not the day.
+The log holds totals, not usage: one row per reading, with the bytes down and up
+so far in the router's month. A day's usage is the difference between readings,
+worked out by manage.clusterflick.com, which also handles the counter resetting
+at the start of the router's month or on a restart. A late or missed reading
+costs an hour's resolution, not the day.
 
-The days before the first reading come from Smarty's own usage history,
-imported by hand with `bandwidth:import-smarty` from pages of
+The days before the first reading come from Smarty's own usage history, imported
+by hand with `bandwidth:import-smarty` from pages of
 `https://smarty.co.uk/api/v2/history/data` saved with a logged-in token (which
 lasts a week, so this can't run unattended). The merged history is
 `smarty-usage.json` on the `bandwidth-smarty` release; importing a day again
@@ -440,9 +439,9 @@ SEARCH_TOKEN=<personal token> npm run find:data-reusers   # Report only
 Looks for public GitHub repositories that build on Clusterflick, by searching
 code for the addresses reusers put in it: the `data-transformed`,
 `data-combined`, `data-matched` and `data-calendar` releases,
-`clusterflick.com/datasets`, and `clusterflick/scripts`. The `Find Data
-Reusers` workflow runs it every Monday and opens an issue on this repository
-for each new one.
+`clusterflick.com/datasets`, and `clusterflick/scripts`. The `Find Data Reusers`
+workflow runs it every Monday and opens an issue on this repository for each new
+one.
 
 A repository is new when it is neither in `data/known-data-reusers.json`, the
 ones found by hand before this existed, nor the subject of an issue here, open
@@ -461,7 +460,8 @@ The `data/` directory contains reference data files:
 - `openstreetmap.json` - Cinema data exported from OpenStreetMap
 - `mycommunitycinema.json` - Cinema data from MyCommunity Cinema
 - `independentcinemaoffice.json` - Cinema data from Independent Cinema Office
-- `known-data-reusers.json` - Repositories found building on Clusterflick before the `Find Data Reusers` workflow, so it reports them as known
+- `known-data-reusers.json` - Repositories found building on Clusterflick before
+  the `Find Data Reusers` workflow, so it reports them as known
 
 ## Dependencies
 
@@ -487,8 +487,8 @@ The releases are **not licensed at all**. They are internal telemetry:
 on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
 row per transform run behind the LLM usage badge, `release-log.jsonl`, one row
 per dataset release behind the data status page on clusterflick.com, and the
-bandwidth log and its Smarty seed. No rights are granted over any of them, and their row shapes change
-without notice.
+bandwidth log and its Smarty seed. No rights are granted over any of them, and
+their row shapes change without notice.
 
 For data you can use, see the
 [data licence](https://clusterflick.com/data-licence). The exact terms for this
