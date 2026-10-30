@@ -109,23 +109,41 @@ const TARGETS = [
   },
 ];
 
+// A 5xx or a dropped connection is GitHub failing to answer, not an answer.
+// data-matched alone makes a request per run in the window, so one of them
+// failing would otherwise void every badge.
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 5000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function get(url, description) {
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "clusterflick-data-analysed",
-    },
-  });
+  for (let attempt = 1; ; attempt += 1) {
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "clusterflick-data-analysed",
+        },
+      });
+    } catch (err) {
+      const message = `GitHub API request failed for ${description}: ${err.message}`;
+      if (attempt === MAX_ATTEMPTS) throw new Error(message);
+      console.error(`${message} - retrying`);
+      await sleep(RETRY_DELAY_MS * attempt);
+      continue;
+    }
 
-  if (!res.ok) {
-    throw new Error(
-      `GitHub API returned ${res.status} ${res.statusText} for ${description}`,
-    );
+    if (res.ok) return res.json();
+
+    const message = `GitHub API returned ${res.status} ${res.statusText} for ${description}`;
+    if (res.status < 500 || attempt === MAX_ATTEMPTS) throw new Error(message);
+    console.error(`${message} - retrying`);
+    await sleep(RETRY_DELAY_MS * attempt);
   }
-
-  return res.json();
 }
 
 async function fetchRuns(repo, workflow, since) {
