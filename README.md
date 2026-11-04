@@ -74,6 +74,7 @@ npm run discover:dice            # Discover venues from Dice.fm
 npm run discover:eventbrite      # Discover venues from Eventbrite
 npm run discover:outsavvy        # Discover venues from Outsavvy
 npm run discover:ticketsource    # Discover venues from TicketSource
+npm run discover:tzkrti          # Discover venues from Tzkrti
 ```
 
 ### Venue Name Mismatches

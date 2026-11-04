@@ -27,6 +27,7 @@
     "discover:ticketsource": "node scripts/discover-ticketsource-venues.js",
     "discover:tickettailor": "node scripts/discover-tickettailor-venues.js",
     "discover:tito": "node scripts/discover-tito-venues.js",
+    "discover:tzkrti": "node scripts/discover-tzkrti-venues.js",
     "find:venue-name-mismatches": "node scripts/find-venue-name-mismatches.js",
     "find:venue-location-mismatches": "node scripts/find-venue-location-mismatches.js",
     "find:venue-leads": "node scripts/find-venue-leads.js",
