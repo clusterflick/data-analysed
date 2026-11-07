@@ -33,6 +33,12 @@ jobs:
     timeout-minutes: 20
     env:
       TZ: Europe/London
+      # Direct fetches carry `From: hello@clusterflick.com`, so a site owner can
+      # find out who we are (clusterflick.com/bot). On here first because these
+      # probes are cheap, hourly, and record every refusal as `bot-challenge`:
+      # a chain that reacts to the header shows up within a cycle or two, from a
+      # datacentre IP rather than the self-hosted runners' shared one.
+      IDENTIFY_BOT: "true"
     steps:
       - uses: clusterflick/.github/setup@main
 
