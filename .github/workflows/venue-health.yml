@@ -315,7 +315,9 @@ jobs:
     # its `timeout-minutes` counts as failed, not cancelled, so a stalled probe
     # still gets its partial cycle recorded.
     if: ${{ !cancelled() }}
-    timeout-minutes: 10
+    # Room for the log's download and publish to ride out a spell of GitHub
+    # errors - rolling-log.sh retries each call for about five minutes.
+    timeout-minutes: 20
     permissions:
       contents: write
       actions: read
@@ -399,39 +401,35 @@ jobs:
           ASSET: health-log.jsonl
         run: scripts/rolling-log.sh locate "$TAG" "$ASSET"
 
+      # Through the API rather than release-downloader's download URL, with
+      # retries over minutes - see rolling-log.sh. Written under the log's own
+      # name even when continuing from a staged copy.
       - name: Download the day's log so far
         if: steps.existing.outputs.exists == 'true'
-        uses: clusterflick/release-downloader@v4
-        with:
-          token: ${{ secrets.PAT }}
-          repository: "clusterflick/data-analysed"
-          tag: ${{ env.TAG }}
-          fileName: ${{ steps.existing.outputs.name }}
-          out-file-path: "output"
-
-      # Only differs when continuing from a publish that did not finish.
-      - name: Use the located log
-        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.name != 'health-log.jsonl'
         env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.TAG }}
           NAME: ${{ steps.existing.outputs.name }}
-        run: mv "output/$NAME" output/health-log.jsonl
+        run: scripts/rolling-log.sh download "$TAG" "$NAME" output/health-log.jsonl
 
       # Unquoted on purpose: one argument per artifact.
       - name: Append this cycle
         run: npm run health:append-log -- health-data output/health-log.jsonl $HEALTH_ARTIFACTS
 
-      - uses: ncipollo/release-action@v1
-        with:
-          allowUpdates: true
-          makeLatest: false
-          tag: ${{ env.TAG }}
-          commit: main
-          body: |
+      # Only on the day's first run: the body never changes, so updating it
+      # every run was one more call to fail - see rolling-log.sh.
+      - name: Create the day's release
+        if: steps.existing.outputs.release == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.TAG }}
+          NOTES: |
             Hourly venue health observations for ${{ env.TAG }}.
             One JSON row per venue per cycle - see scripts/health in
             clusterflick/scripts for the row shape.
 
             ⚠️ **Internal telemetry — not licensed.** This drives the status panel on clusterflick.com and the venue health badge. No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+        run: scripts/rolling-log.sh ensure-release "$TAG"
 
       # Not the release action's `replacesArtifacts`, which deletes the old log
       # before uploading the new one - see scripts/rolling-log.sh.

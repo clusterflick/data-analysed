@@ -63,7 +63,9 @@ jobs:
     name: Append to the log
     needs: read
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Room for the log's download and publish to ride out a spell of GitHub
+    # errors - rolling-log.sh retries each call for about five minutes.
+    timeout-minutes: 20
     permissions:
       contents: write
     env:
@@ -85,22 +87,16 @@ jobs:
           TAG: ${{ needs.read.outputs.tag }}
         run: scripts/rolling-log.sh locate "$TAG" bandwidth-log.jsonl
 
+      # Through the API rather than release-downloader's download URL, with
+      # retries over minutes - see rolling-log.sh. Written under the log's own
+      # name even when continuing from a staged copy.
       - name: Download the month's log so far
         if: steps.existing.outputs.exists == 'true'
-        uses: clusterflick/release-downloader@v4
-        with:
-          token: ${{ secrets.PAT }}
-          repository: "clusterflick/data-analysed"
-          tag: ${{ needs.read.outputs.tag }}
-          fileName: ${{ steps.existing.outputs.name }}
-          out-file-path: "output"
-
-      # Only differs when continuing from a publish that did not finish.
-      - name: Use the located log
-        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.name != 'bandwidth-log.jsonl'
         env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.read.outputs.tag }}
           NAME: ${{ steps.existing.outputs.name }}
-        run: mv "output/$NAME" output/bandwidth-log.jsonl
+        run: scripts/rolling-log.sh download "$TAG" "$NAME" output/bandwidth-log.jsonl
 
       - name: Append the reading
         env:
@@ -108,20 +104,21 @@ jobs:
         run: node scripts/append-bandwidth-log.js output/bandwidth-log.jsonl
 
       # A release a month, like llm-usage-YYYYMM.
-      - uses: ncipollo/release-action@v1
-        with:
-          allowUpdates: true
-          makeLatest: false
-          omitBodyDuringUpdate: true
-          tag: ${{ needs.read.outputs.tag }}
-          commit: main
-          body: |
+      # Only on the month's first run: the body never changes, so updating it
+      # every run was one more call to fail - see rolling-log.sh.
+      - name: Create the month's release
+        if: steps.existing.outputs.release == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.read.outputs.tag }}
+          NOTES: |
             Data usage on the 5G router the self-hosted runners share, a month to a release.
             One JSON row per hourly reading of the router's running total for its month -
             a day's usage is the difference between readings. See
             scripts/read-router-usage.js for the row shape.
 
             ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+        run: scripts/rolling-log.sh ensure-release "$TAG"
 
       - name: Publish the log
         env:
