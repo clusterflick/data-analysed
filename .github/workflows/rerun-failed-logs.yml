@@ -1,0 +1,127 @@
+name: Re-run Failed Logs
+
+# Re-runs the job that appends to a rolling log - venue-health's day log,
+# bandwidth's month log - when it fails, ten minutes later, once. Recovering
+# those by hand is what kept happening: on 8 and 9 Nov GitHub's release
+# download URL answered 504 for 3 to 26 minutes at a time, every attempt inside
+# the job landed in the same spell, and a re-run once it had passed went
+# through first time. rolling-log.sh now retries each call for about five
+# minutes, which covers the shorter spells; this covers the longer ones without
+# holding a job open for half an hour.
+#
+# Only the log job is re-run, not a failed probe. A failed probe is an
+# observation about the source - the row says why, and it was appended with the
+# rest of the cycle - so there is nothing to recover. Re-running the log job
+# alone keeps the probe jobs' results and artifacts from the first attempt. It
+# is safe to repeat: the health append replaces a cycle already in the log
+# (keyed by run id) and the bandwidth append is keyed by the reading's time.
+#
+# The exception is a probe job that failed in setup, before it probed
+# anything - on 8 Nov 22:00 Vue's Node download aborted on its runner. It
+# observed nothing, so it has no rows to protect, and the log job then fails on
+# its missing rows. When every failed probe job failed that way, the run's
+# failed jobs are re-run together, which brings in the log job after them. A
+# setup failure beside a real probe failure is left for a person: re-running
+# the failed jobs would probe the real failure again.
+#
+# Not re-run:
+#
+# - A health cycle whose log job failed only on "Fail on missing health data"
+#   with no probe job failed in setup. The probe job that never uploaded did
+#   probe, so its rows are lost rather than late, and appending again won't
+#   bring them back.
+# - Anything past attempt 2. By then the log job has spent its own retries in
+#   two spells ten minutes apart, so a third failure is worth a person's look.
+#
+# The re-run joins the workflow's own concurrency group, so it waits behind a
+# cycle that is running. A failed log job ends around a quarter past, so the
+# re-run starts around twenty-five past, well clear of the next cycle.
+
+on:
+  # zizmor: ignore[dangerous-triggers] - both workflows are workflow_dispatch
+  # only, so no fork or pull request can start the run this follows, and this
+  # job checks out and runs no code: it reads the run's jobs and re-runs them.
+  workflow_run:
+    workflows: ["Venue Health", "Bandwidth Log"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: rerun-failed-logs-${{ github.event.workflow_run.id }}
+
+jobs:
+  rerun:
+    name: Re-run the log job
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write # to read the run's jobs and re-run them
+    steps:
+      - name: Re-run the log job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          case "$WORKFLOW" in
+            "Venue Health") log_job="Append to Log" ;;
+            "Bandwidth Log") log_job="Append to the log" ;;
+            *)
+              echo "::error::No log job known for $WORKFLOW"
+              exit 1
+              ;;
+          esac
+
+          jobs=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
+            --jq '.jobs[] | select(.conclusion == "failure")')
+          echo "Failed jobs in attempt $RUN_ATTEMPT of $WORKFLOW run $RUN_ID:"
+          jq -r '"- \(.name): \([.steps[] | select(.conclusion == "failure") | .name] | join(", "))"' <<< "$jobs"
+
+          # Probe jobs that failed in setup, and other jobs that failed anywhere
+          # else. The log job is neither.
+          setup_step="Run clusterflick/.github/setup@main"
+          others=$(jq -c --arg log "$log_job" 'select(.name != $log)' <<< "$jobs")
+          in_setup=$(jq -c --arg step "$setup_step" 'select(any(.steps[]; .name == $step and .conclusion == "failure"))' <<< "$others")
+          elsewhere=$(jq -c --arg step "$setup_step" 'select(any(.steps[]; .name == $step and .conclusion == "failure") | not)' <<< "$others")
+
+          log=$(jq -c --arg name "$log_job" 'select(.name == $name)' <<< "$jobs")
+          failed_steps='[]'
+          if [ -n "$log" ]; then
+            failed_steps=$(jq -c '[.steps[] | select(.conclusion == "failure") | .name]' <<< "$log")
+          fi
+
+          if [ -n "$in_setup" ] && [ -z "$elsewhere" ]; then
+            action=failed
+            echo "Every failed probe job failed in setup - re-running the failed jobs."
+          elif [ -n "$in_setup" ]; then
+            echo "A probe job failed in setup beside a real probe failure - leaving it for a person."
+            exit 0
+          elif [ -z "$log" ]; then
+            echo "$log_job didn't fail - nothing to re-run."
+            exit 0
+          elif [ "$failed_steps" = '["Fail on missing health data"]' ]; then
+            echo "$log_job failed only on missing health data from a probe job that did probe - re-running the append won't bring its rows back."
+            exit 0
+          else
+            action=log
+          fi
+
+          # Longer than rolling-log.sh's own retries, so the re-run lands after
+          # the spell they were in rather than inside it.
+          sleep 600
+
+          if [ "$action" = failed ]; then
+            gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"
+            what="the failed jobs"
+          else
+            job_id=$(jq -r '.id' <<< "$log")
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/rerun" > /dev/null
+            what="$log_job (failed at $failed_steps)"
+          fi
+          echo "🔁 Re-ran $what of ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >> "$GITHUB_STEP_SUMMARY"

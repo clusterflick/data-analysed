@@ -84,10 +84,7 @@ jobs:
             exists=$(sed -n 's/^exists=//p' "$located")
             name=$(sed -n 's/^name=//p' "$located")
             if [ "$exists" = "true" ]; then
-              gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$dir"
-              if [ "$name" != "release-log.jsonl" ]; then
-                mv "$dir/$name" "$dir/release-log.jsonl"
-              fi
+              scripts/rolling-log.sh download "$tag" "$name" "$dir/release-log.jsonl"
             fi
 
             appended=$(mktemp)
