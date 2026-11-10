@@ -24,6 +24,14 @@ name: Re-run Failed Logs
 # setup failure beside a real probe failure is left for a person: re-running
 # the failed jobs would probe the real failure again.
 #
+# A job no runner ever picked up counts the same way. On 10 Nov 07:00
+# Bandwidth Log's router read was cancelled with "The job was not acquired by
+# Runner of type self-hosted even after multiple attempts": no steps ran, the
+# collect job was skipped rather than failed, and so nothing was re-run and the
+# log went two hours between readings. GitHub reports such a job as cancelled
+# with no steps, which a job that started and was then cancelled or timed out
+# never is.
+#
 # Not re-run:
 #
 # - A health cycle whose log job failed only on "Fail on missing health data"
@@ -77,18 +85,20 @@ jobs:
               ;;
           esac
 
+          # Failed jobs, and jobs no runner picked up: cancelled before any step.
           jobs=$(gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
-            --jq '.jobs[] | select(.conclusion == "failure")')
+            --jq '.jobs[] | select(.conclusion == "failure" or (.conclusion == "cancelled" and (.steps // [] | length) == 0))')
           echo "Failed jobs in attempt $RUN_ATTEMPT of $WORKFLOW run $RUN_ID:"
           jq -r '"- \(.name): \([.steps[] | select(.conclusion == "failure") | .name] | join(", "))"' <<< "$jobs"
 
-          # Probe jobs that failed in setup, and other jobs that failed anywhere
-          # else. The log job is neither.
+          # Jobs that observed nothing - never picked up, or failed in setup -
+          # and other jobs that failed anywhere else. The log job is neither.
           setup_step="Run clusterflick/.github/setup@main"
           others=$(jq -c --arg log "$log_job" 'select(.name != $log)' <<< "$jobs")
-          in_setup=$(jq -c --arg step "$setup_step" 'select(any(.steps[]; .name == $step and .conclusion == "failure"))' <<< "$others")
-          elsewhere=$(jq -c --arg step "$setup_step" 'select(any(.steps[]; .name == $step and .conclusion == "failure") | not)' <<< "$others")
+          observed_nothing='(.steps // [] | length) == 0 or any(.steps[]; .name == $step and .conclusion == "failure")'
+          in_setup=$(jq -c --arg step "$setup_step" "select($observed_nothing)" <<< "$others")
+          elsewhere=$(jq -c --arg step "$setup_step" "select(($observed_nothing) | not)" <<< "$others")
 
           log=$(jq -c --arg name "$log_job" 'select(.name == $name)' <<< "$jobs")
           failed_steps='[]'
@@ -98,7 +108,7 @@ jobs:
 
           if [ -n "$in_setup" ] && [ -z "$elsewhere" ]; then
             action=failed
-            echo "Every failed probe job failed in setup - re-running the failed jobs."
+            echo "Every failed job before the log failed in setup or was never picked up - re-running the failed jobs."
           elif [ -n "$in_setup" ]; then
             echo "A probe job failed in setup beside a real probe failure - leaving it for a person."
             exit 0
