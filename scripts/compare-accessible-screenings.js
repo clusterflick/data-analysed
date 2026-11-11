@@ -44,10 +44,26 @@ const UKCA_TAG_MAP = {
   "Showtime.Accessibility.AudioDescription": ["audioDescription"],
   "Showtime.Accessibility.AutismFriendly": ["relaxed"],
   "Showtime.Accessibility.DementiaFriendly": ["relaxed"],
+  "Showtime.Accessibility.SensoryFriendly": ["relaxed"],
   "Showtime.Accessibility.Subtitled": ["subtitled"],
   "Showtime.Accessibility.ClosedCaption": ["hardOfHearing"],
+  "Showtime.Accessibility.HearingImpaired": ["hardOfHearing"],
   "Showtime.Accessibility.OpenCaption": ["subtitled", "hardOfHearing"],
+  // UKCA files the baby and dog screenings outside its Accessibility
+  // namespace. Without these two of our fields had nothing to be checked
+  // against, and could only ever show up as "extra".
+  "Showtime.Restriction.BabyClub": ["babyFriendly"],
+  "Showtime.Restriction.KidsFriendly": ["babyFriendly"],
+  "Showtime.Experience.Newbies": ["babyFriendly"],
+  "Showtime.Restriction.DogFriendly": ["dogFriendly"],
 };
+
+// Tags in the Accessibility namespace that say nothing we record: "Accessible"
+// is step-free access to the auditorium, and "Dubbed" describes the print.
+const UKCA_IGNORED_TAGS = new Set([
+  "Showtime.Accessibility.Accessible",
+  "Showtime.Accessibility.Dubbed",
+]);
 
 function ukcaTagsToAccessibility(tags) {
   const result = {};
@@ -55,17 +71,16 @@ function ukcaTagsToAccessibility(tags) {
   const unknownTags = [];
 
   for (const tag of tags) {
-    if (!tag.startsWith("Showtime.Accessibility.")) continue;
-    if (tag === "Showtime.Accessibility.Accessible") continue;
+    if (UKCA_IGNORED_TAGS.has(tag)) continue;
 
     const fields = UKCA_TAG_MAP[tag];
     if (fields) {
-      const shortTag = tag.replace("Showtime.Accessibility.", "");
+      const shortTag = tag.split(".").pop();
       for (const field of fields) {
         result[field] = true;
         sourceTag[field] = shortTag;
       }
-    } else {
+    } else if (tag.startsWith("Showtime.Accessibility.")) {
       unknownTags.push(tag);
     }
   }
@@ -73,11 +88,13 @@ function ukcaTagsToAccessibility(tags) {
   return { accessibility: result, sourceTag, unknownTags };
 }
 
+// True when a showtime carries a tag we compare, or one in the Accessibility
+// namespace we have never seen - an unknown tag still has to reach the report.
 function hasAccessibilityTags(tags) {
   return tags.some(
     (t) =>
-      t.startsWith("Showtime.Accessibility.") &&
-      t !== "Showtime.Accessibility.Accessible",
+      !UKCA_IGNORED_TAGS.has(t) &&
+      (t in UKCA_TAG_MAP || t.startsWith("Showtime.Accessibility.")),
   );
 }
 
@@ -117,8 +134,8 @@ function normalizeVenueName(name) {
 function venueNameSimilarity(a, b) {
   const na = normalizeVenueName(a);
   const nb = normalizeVenueName(b);
+  if (!na || !nb) return 0;
   if (na === nb) return 1;
-  if (na.includes(nb) || nb.includes(na)) return 0.8;
 
   const wordsA = new Set(na.split(" "));
   const wordsB = new Set(nb.split(" "));
@@ -126,6 +143,12 @@ function venueNameSimilarity(a, b) {
   for (const w of wordsA) {
     if (wordsB.has(w)) intersection++;
   }
+
+  // One name wholly contained in the other, compared a word at a time. Compared
+  // a character at a time, "W London" reduces to "w" and is "contained" in any
+  // name with a w in it - which paired it with the Cinema in the Power Station.
+  if (intersection === Math.min(wordsA.size, wordsB.size)) return 0.8;
+
   const union = wordsA.size + wordsB.size - intersection;
   return union > 0 ? intersection / union : 0;
 }
@@ -213,8 +236,85 @@ function extractShortId(base64Id) {
 
 const COORD_THRESHOLD_KM = 0.25;
 
-function matchVenues(ukcaTheaters, transformedVenues) {
+// A name-only match is a last resort for a theatre whose coordinates are off.
+// Past this distance the two are different places however alike the names.
+const NAME_FALLBACK_MAX_KM = 2;
+
+// UKCA theatres whose pairing can't be left to coordinates and names, keyed by
+// UKCA's theatre code.
+//
+// A venue id pins the theatre to that venue, and more than one theatre may
+// name the same venue: the comparison then reads their showtimes as one
+// programme, which is how we model it.
+//
+// null says we don't cover the theatre. It is kept out of the matching, so it
+// can't be paired with whichever of our venues happens to stand nearest, and
+// is still reported as unmatched - loudly, if it ever has showtimes.
+const UKCA_VENUE_OVERRIDES = {
+  // UKCA lists the Battersea site twice, splitting its programme between the
+  // two; we model both auditoria as one venue.
+  G01OL: "thecinemainthepowerstation.com", // The Cinema in the Power Station
+  X11LR: "thecinemainthepowerstation.com", // The Cinema in The Arches
+  // Imperial College's student cinema, 130m from the Royal Albert Hall
+  X0NUF: null, // Imperial Cinema
+  // Closed. The Trafalgar is a different cinema, a few doors along King's Road
+  X07CU: null, // Curzon Chelsea
+};
+
+function matchVenues(allUkcaTheaters, transformedVenues) {
   const venueIds = Object.keys(transformedVenues);
+
+  // Apply the overrides first, and keep those theatres and venues out of the
+  // automatic matching below.
+  const matched = [];
+  const matchedUkcaIds = new Set();
+  const usedVenues = new Set();
+  const notCoveredIds = new Set();
+  const pinnedByVenue = new Map();
+
+  for (const theater of allUkcaTheaters) {
+    const code = extractShortId(theater.id);
+    if (!(code in UKCA_VENUE_OVERRIDES)) continue;
+
+    const venueId = UKCA_VENUE_OVERRIDES[code];
+    if (venueId === null) {
+      notCoveredIds.add(theater.id);
+      continue;
+    }
+    if (!venueIds.includes(venueId)) {
+      throw new Error(
+        `UKCA_VENUE_OVERRIDES pins ${code} (${theater.name}) to "${venueId}", which is not in the transformed data`,
+      );
+    }
+    if (!pinnedByVenue.has(venueId)) pinnedByVenue.set(venueId, []);
+    pinnedByVenue.get(venueId).push(theater);
+    matchedUkcaIds.add(theater.id);
+  }
+
+  for (const [venueId, theaters] of pinnedByVenue) {
+    const geo = getVenueGeo(venueId);
+    const coords = theaters[0].coordinates;
+    matched.push({
+      ukcaTheater: theaters[0],
+      ukcaTheaters: theaters,
+      venueId,
+      matchDist:
+        geo && coords?.latitude && coords?.longitude
+          ? haversineKm(coords.latitude, coords.longitude, geo.lat, geo.lon)
+          : null,
+      matchNameSim: Math.max(
+        ...theaters.map((t) =>
+          venueNameSimilarity(t.name, getVenueName(venueId)),
+        ),
+      ),
+      matchPinned: true,
+    });
+    usedVenues.add(venueId);
+  }
+
+  const ukcaTheaters = allUkcaTheaters.filter(
+    (t) => !matchedUkcaIds.has(t.id) && !notCoveredIds.has(t.id),
+  );
 
   // Step 1: Build all candidate pairs within 250m
   const candidates = [];
@@ -240,16 +340,13 @@ function matchVenues(ukcaTheaters, transformedVenues) {
   candidates.sort((a, b) => b.nameSim - a.nameSim || a.dist - b.dist);
 
   // Step 3: Greedily assign best-first
-  const matched = [];
-  const matchedUkcaIds = new Set();
-  const usedVenues = new Set();
-
   for (const c of candidates) {
     if (matchedUkcaIds.has(c.theater.id)) continue;
     if (usedVenues.has(c.venueId)) continue;
 
     matched.push({
       ukcaTheater: c.theater,
+      ukcaTheaters: [c.theater],
       venueId: c.venueId,
       matchDist: c.dist,
       matchNameSim: c.nameSim,
@@ -289,8 +386,11 @@ function matchVenues(ukcaTheaters, transformedVenues) {
         ? haversineKm(ukcaLat, ukcaLon, geo.lat, geo.lon)
         : null;
 
+    if (dist !== null && dist > NAME_FALLBACK_MAX_KM) continue;
+
     matched.push({
       ukcaTheater: c.theater,
+      ukcaTheaters: [c.theater],
       venueId: c.venueId,
       matchDist: dist,
       matchNameSim: c.nameSim,
@@ -301,7 +401,7 @@ function matchVenues(ukcaTheaters, transformedVenues) {
 
   // Unmatched UKCA theaters — find nearest venue for diagnostics
   const unmatchedUkca = [];
-  for (const theater of ukcaTheaters) {
+  for (const theater of allUkcaTheaters) {
     if (matchedUkcaIds.has(theater.id)) continue;
     const ukcaLat = theater.coordinates?.latitude;
     const ukcaLon = theater.coordinates?.longitude;
@@ -317,7 +417,11 @@ function matchVenues(ukcaTheaters, transformedVenues) {
         nearest = { venueId, dist };
       }
     }
-    unmatchedUkca.push({ theater, nearest });
+    unmatchedUkca.push({
+      theater,
+      nearest,
+      notCovered: notCoveredIds.has(theater.id),
+    });
   }
 
   const unmatchedOurs = venueIds.filter((v) => !usedVenues.has(v)).sort();
@@ -401,7 +505,13 @@ function normalizeUrl(url) {
 
 // Extract a performance ID from a booking URL using common query parameters.
 // Returns null if no recognisable ID parameter is found.
-const PERF_ID_PARAMS = ["id", "perfcode", "showtimeid", "eid", "eventinstanceid"];
+const PERF_ID_PARAMS = [
+  "id",
+  "perfcode",
+  "showtimeid",
+  "eid",
+  "eventinstanceid",
+];
 
 function extractPerfId(url) {
   try {
@@ -639,6 +749,7 @@ function compareAccessibility(ukcaTags, ourAccessibility) {
   const allFields = [
     "audioDescription",
     "babyFriendly",
+    "dogFriendly",
     "hardOfHearing",
     "relaxed",
     "subtitled",
@@ -969,6 +1080,8 @@ function formatTime(ms) {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${h}:${m}`;
 }
 
+const ukcaNames = (m) => m.ukcaTheaters.map(({ name }) => name).join(" + ");
+
 function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
   const lines = [];
   const { matched, unmatchedUkca, unmatchedOurs } = venueMatchResult;
@@ -1034,13 +1147,18 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
   const unmatchedLive = unmatchedUkca.filter(hasUpcoming);
   const unmatchedClosed = unmatchedUkca.filter((u) => !hasUpcoming(u));
 
-  const renderUnmatchedTheater = ({ theater, nearest }, nameColor) => {
+  const renderUnmatchedTheater = (
+    { theater, nearest, notCovered },
+    nameColor,
+  ) => {
     const hasDates =
       theater.showtimesDates && theater.showtimesDates.length > 0;
     const dateNote = hasDates
       ? `${theater.showtimesDates.length} showtime dates`
       : "no upcoming showtimes";
-    lines.push(`  ${nameColor}${theater.name}${c.reset} (${dateNote})`);
+    lines.push(
+      `  ${nameColor}${theater.name}${c.reset} (${dateNote})${notCovered ? ` ${c.dim}- listed in UKCA_VENUE_OVERRIDES as not covered${c.reset}` : ""}`,
+    );
     lines.push(
       `    Location: ${theater.location?.city || "?"}, ${theater.location?.zip || "?"}`,
     );
@@ -1122,10 +1240,10 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
     for (const m of venuesWithMismatches) {
       const analysis = venueAnalyses[m.venueId];
       lines.push(
-        `${c.yellow}--- ${m.venueId} (${m.ukcaTheater.name}) ${"─".repeat(Math.max(0, 40 - m.venueId.length))}${c.reset}`,
+        `${c.yellow}--- ${m.venueId} (${ukcaNames(m)}) ${"─".repeat(Math.max(0, 40 - m.venueId.length))}${c.reset}`,
       );
       lines.push(
-        `    Match: ${m.matchDist != null ? m.matchDist.toFixed(2) + "km" : "name-only"}, name: ${m.matchNameSim.toFixed(2)}`,
+        `    Match: ${m.matchPinned ? "pinned, " : ""}${m.matchDist != null ? m.matchDist.toFixed(2) + "km" : "name-only"}, name: ${m.matchNameSim.toFixed(2)}`,
       );
       const ukcaOnlyN = analysis.ukcaOnlyCount;
       const ourOnlyN = analysis.ourOnlyCount;
@@ -1197,7 +1315,10 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
 
         for (const mm of analysis.accessibilityMismatch.slice(0, 10)) {
           const time = formatTime(mm.ours.time);
-          const method = mm.matchMethod === "bookingUrl" ? "url" : "time";
+          const method =
+            { bookingUrl: "url", perfId: "id", normalizedTitle: "title" }[
+              mm.matchMethod
+            ] || "time";
           lines.push(
             `      ${mm.ukca.movieTitle} @ ${time} ${c.dim}[${method}]${c.reset}`,
           );
@@ -1289,7 +1410,7 @@ function formatReport(venueMatchResult, venueAnalyses, ukcaData) {
         ? ` ${c.dim}(${notes.join(", ")} ignored)${c.reset}`
         : "";
       lines.push(
-        `  ${c.green}✓${c.reset} ${m.venueId} (${m.ukcaTheater.name}) - ${analysis.matchedCount} matched, ${analysis.accessibilityConsistent} consistent${noteStr}`,
+        `  ${c.green}✓${c.reset} ${m.venueId} (${ukcaNames(m)}) - ${analysis.matchedCount} matched, ${analysis.accessibilityConsistent} consistent${noteStr}`,
       );
     }
     lines.push("");
@@ -1352,7 +1473,7 @@ function buildJsonLog(venueMatchResult, venueAnalyses, ukcaData) {
         return [
           m.venueId,
           {
-            ukcaName: m.ukcaTheater.name,
+            ukcaName: ukcaNames(m),
             matchDist: m.matchDist,
             matchNameSim: m.matchNameSim,
             ...analysis,
@@ -1445,8 +1566,9 @@ async function main() {
   const venueAnalyses = {};
 
   for (const m of venueMatchResult.matched) {
-    const shortId = extractShortId(m.ukcaTheater.id);
-    const ukcaShowtimeData = ukcaData.showtimes[shortId] || [];
+    const ukcaShowtimeData = m.ukcaTheaters.flatMap(
+      (theater) => ukcaData.showtimes[extractShortId(theater.id)] || [],
+    );
     const ourShowings = transformedVenues[m.venueId] || [];
 
     const analysis = analyzeVenue(ukcaShowtimeData, ourShowings, now);
@@ -1455,7 +1577,7 @@ async function main() {
     // screen capability, not per-showing data. If a mismatch is only "missing
     // audioDescription" and the performance's screen has AUDIO_DESCRIPTION in
     // the UKCA theater data, it's a screen-level capability, not a real gap.
-    const screens = m.ukcaTheater.screens || [];
+    const screens = m.ukcaTheaters.flatMap((theater) => theater.screens || []);
     const adScreenNames = new Set(
       screens
         .filter((s) => s.accessibility?.includes("AUDIO_DESCRIPTION"))
