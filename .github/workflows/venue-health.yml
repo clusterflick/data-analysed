@@ -40,7 +40,8 @@ jobs:
       # datacentre IP rather than the self-hosted runners' shared one.
       IDENTIFY_BOT: "true"
     steps:
-      - uses: clusterflick/.github/setup@main
+      - id: setup
+        uses: clusterflick/.github/setup@main
 
       # A location is either a chain group or a single venue, and the two look
       # the same from here - `scripts/health` resolves whichever it was handed.
@@ -50,53 +51,56 @@ jobs:
       #
       # Every step runs even when an earlier one fails: each is an independent
       # observation, and a chain being down is not a reason to stop looking at
-      # the others.
+      # the others. A failed setup is the exception - every probe would then
+      # fail for the runner's reason (a missing browser, a stale scripts) and
+      # log it against the venue, so they are skipped and the missing artifact
+      # fails the collect job instead.
       - name: castlesidcup.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- castlesidcup.com
 
       - name: electriccinema.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- electriccinema.co.uk
 
       - name: everymancinema.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- everymancinema.com
 
       - name: forestcinema.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- forestcinema.co.uk
 
       - name: genesiscinema.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- genesiscinema.co.uk
 
       - name: olympiccinema.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- olympiccinema.com
 
       - name: omniplex.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- omniplex.co.uk
 
       - name: picturehouses.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- picturehouses.com
 
       - name: princecharlescinema.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- princecharlescinema.com
 
       - name: thecastlecinema.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- thecastlecinema.com
 
       - name: thecinemaatselfridges.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- thecinemaatselfridges.com
 
       - name: thecinemainthepowerstation.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- thecinemainthepowerstation.com
 
       # Rows are written before a probe is allowed to fail the step, so this
@@ -165,24 +169,25 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: clusterflick/.github/setup@main
+      - id: setup
+        uses: clusterflick/.github/setup@main
         with:
           playwright: true
 
       - name: bfi.org.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- bfi.org.uk
 
       - name: cineworld.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- cineworld.co.uk
 
       - name: curzon.com
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- curzon.com
 
       - name: odeon.co.uk
-        if: always()
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- odeon.co.uk
 
       - name: Upload health data
@@ -249,7 +254,8 @@ jobs:
     env:
       TZ: Europe/London
     steps:
-      - uses: clusterflick/.github/setup@main
+      - id: setup
+        uses: clusterflick/.github/setup@main
         with:
           playwright: true
 
