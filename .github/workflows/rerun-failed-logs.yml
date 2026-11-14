@@ -24,6 +24,11 @@ name: Re-run Failed Logs
 # setup failure beside a real probe failure is left for a person: re-running
 # the failed jobs would probe the real failure again.
 #
+# So does a job that failed in "Set up job", the runner's own step before any
+# of the workflow's. On 14 Nov 22:58 Bandwidth Log's router read failed there:
+# the actions/checkout tarball arrived corrupted (a gzip CRC error) and no step
+# ran. Nothing inside the job can retry that, and a re-run went through.
+#
 # A job no runner ever picked up counts the same way. On 10 Nov 07:00
 # Bandwidth Log's router read was cancelled with "The job was not acquired by
 # Runner of type self-hosted even after multiple attempts": no steps ran, the
@@ -92,11 +97,12 @@ jobs:
           echo "Failed jobs in attempt $RUN_ATTEMPT of $WORKFLOW run $RUN_ID:"
           jq -r '"- \(.name): \([.steps[] | select(.conclusion == "failure") | .name] | join(", "))"' <<< "$jobs"
 
-          # Jobs that observed nothing - never picked up, or failed in setup -
+          # Jobs that observed nothing - never picked up, or failed in setup
+          # (the runner's "Set up job" or the shared setup action) -
           # and other jobs that failed anywhere else. The log job is neither.
           setup_step="Run clusterflick/.github/setup@main"
           others=$(jq -c --arg log "$log_job" 'select(.name != $log)' <<< "$jobs")
-          observed_nothing='(.steps // [] | length) == 0 or any(.steps[]; .name == $step and .conclusion == "failure")'
+          observed_nothing='(.steps // [] | length) == 0 or any(.steps[]; (.name == $step or .name == "Set up job") and .conclusion == "failure")'
           in_setup=$(jq -c --arg step "$setup_step" "select($observed_nothing)" <<< "$others")
           elsewhere=$(jq -c --arg step "$setup_step" "select(($observed_nothing) | not)" <<< "$others")
 
