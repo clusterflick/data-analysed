@@ -87,10 +87,6 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- picturehouses.com
 
-      - name: princecharlescinema.com
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: npm run health -- princecharlescinema.com
-
       - name: thecastlecinema.com
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- thecastlecinema.com
@@ -160,7 +156,9 @@ jobs:
   # Probes that need a browser, plus any that a datacentre IP gets blocked from.
   # Cineworld needs no browser but sits behind Cloudflare: from a GitHub-hosted
   # runner every one of its twelve venues came back `cf-mitigated` 403, on the
-  # retry as well as the first attempt. The residential IP clears it.
+  # retry as well as the first attempt. The residential IP clears it. The Prince
+  # Charles Cinema is challenged on GitHub's runners too (since 17 Nov 2026) and
+  # escalates to Camoufox, which is only provisioned on the self-hosted runners.
   # ------------------------------------------------------------------------------
   probe_self_hosted:
     name: Probe (self-hosted)
@@ -189,6 +187,10 @@ jobs:
       - name: odeon.co.uk
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run health -- odeon.co.uk
+
+      - name: princecharlescinema.com
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: npm run health -- princecharlescinema.com
 
       - name: Upload health data
         id: upload
