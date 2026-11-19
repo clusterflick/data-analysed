@@ -403,6 +403,36 @@ tag; a logged release whose publish time has since changed fails the run rather
 than being rewritten. Running the workflow by hand with `backfill` lists every
 release instead - how the log was first filled.
 
+### Film 404 Log
+
+```bash
+npm ci --prefix scripts/movie-404
+node scripts/movie-404/append-movie-404-log.mjs <current-map> <previous-map> <log-file>
+```
+
+Every film URL a deploy of clusterflick.com left behind, and what the
+[movie-redirects](https://github.com/clusterflick/movie-redirects) Worker now
+does with it. Each deploy publishes `/movie-urls.json`, every film page it
+built; the `Film 404 Log` workflow compares it with the last one it saw (kept
+as `movie-urls.json` on the `movie-404-baseline` release) and appends one row
+per deploy to `movie-404-log.jsonl` on this repository's `movie-404-log-YYYYMM`
+release. The comparison is `findLostUrls` from `@clusterflick/catalogue`, the
+module the Worker runs, so a row says what the Worker will actually do.
+
+Each row holds counts by `kind` (why the URL went: `retitled`, `listing`,
+`pruned`, `lost`) and by outcome (`301 id`, `302 fuzzy-slug`, `404 no-match`,
+…), and every URL with its decision. A URL worth a look carries a `review`
+reason: a showing film that left without a departed page (`lost`, which should
+never happen), a redirect made by title rather than by id, or several showing
+films matching. A finished unmatched listing with nowhere to go is the usual
+row and isn't flagged. manage.clusterflick.com shows the log.
+
+clusterflick.com dispatches the workflow once a deploy is verified live. The
+dispatch carries nothing: a lost dispatch or a failed run leaves the baseline
+where it was, and the next run compares across both deploys. The script lives
+in its own directory with its own lockfile, so the workflow installs only the
+catalogue package.
+
 ### Bandwidth Log
 
 ```bash
@@ -487,9 +517,10 @@ The releases are **not licensed at all**. They are internal telemetry:
 `health-log.jsonl`, one row per venue per hourly cycle behind the status panel
 on clusterflick.com and the venue health badge, and `llm-usage-log.jsonl`, one
 row per transform run behind the LLM usage badge, `release-log.jsonl`, one row
-per dataset release behind the data status page on clusterflick.com, and the
-bandwidth log and its Smarty seed. No rights are granted over any of them, and
-their row shapes change without notice.
+per dataset release behind the data status page on clusterflick.com, the
+bandwidth log and its Smarty seed, and the film 404 log and its baseline. No
+rights are granted over any of them, and their row shapes change without
+notice.
 
 For data you can use, see the
 [data licence](https://clusterflick.com/data-licence). The exact terms for this

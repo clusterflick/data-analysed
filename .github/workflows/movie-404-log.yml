@@ -1,0 +1,145 @@
+# Logs the film URLs each deploy of clusterflick.com left behind, and what the
+# movie-redirects Worker now does with each - a redirect, or a 404.
+#
+# Every deploy publishes /movie-urls.json: every film page it built, and what
+# the Worker reads to send a dead film URL somewhere (clusterflick/
+# movie-redirects). The last map this saw is kept on the `movie-404-baseline`
+# release; comparing it with the live one says exactly which URLs stopped being
+# pages, and running each through the Worker's own rules - the same module from
+# @clusterflick/catalogue - says where it ends up. So a broken rule, or a film
+# that went without the departed page it should have, shows on the day of the
+# deploy rather than weeks later in Search Console.
+#
+# Fired by clusterflick.com once a deploy is verified live. The dispatch
+# carries nothing: a dispatch lost to a GitHub incident, or a run that failed,
+# leaves the baseline where it was, and the next deploy's run compares across
+# both. The concurrency group queues runs rather than cancelling them, since
+# each one moves the baseline on.
+on:
+  repository_dispatch:
+    types: [movie_url_changes]
+  workflow_dispatch:
+
+name: Film 404 Log
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movie-404-log
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: Compare Film URLs
+    runs-on: ubuntu-latest
+    # Room for the log's download and publish to ride out a spell of GitHub
+    # errors - rolling-log.sh retries each call for about five minutes.
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TZ: Europe/London
+      BASELINE_TAG: movie-404-baseline
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      # Only the comparison's own dependency, @clusterflick/catalogue, from
+      # its own lockfile - not this repository's Playwright and the rest.
+      - name: Install the comparison
+        run: npm ci --prefix scripts/movie-404
+
+      # A query string unique to the run: the zone's "Cache JSON blobs" rule
+      # holds a fixed-name .json at the edge for a year, and a cache key with a
+      # query nobody has asked for before always goes to GitHub Pages.
+      - name: Fetch the live map
+        run: |
+          mkdir -p output
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 20 \
+            "https://clusterflick.com/movie-urls.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            -o output/movie-urls.json
+
+      # The month the deploy belongs to, by London time, as the other logs.
+      - name: Name the month's log
+        id: month
+        run: echo "tag=movie-404-log-$(date +%Y%m)" >> "$GITHUB_OUTPUT"
+
+      # Absent on the very first run, which is not an error - the comparison
+      # keeps the live map as the baseline and logs nothing. Established
+      # rather than inferred from a failed download: a transient error read as
+      # "absent" would skip a deploy's comparison - see rolling-log.sh.
+      - name: Check for the baseline
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/rolling-log.sh locate "$BASELINE_TAG" movie-urls.json
+
+      - name: Download the baseline
+        if: steps.baseline.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.baseline.outputs.name }}
+        run: scripts/rolling-log.sh download "$BASELINE_TAG" "$NAME" baseline/movie-urls.json
+
+      - name: Check for the month's log so far
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+        run: scripts/rolling-log.sh locate "$TAG" movie-404-log.jsonl
+
+      - name: Download the month's log so far
+        if: steps.existing.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+          NAME: ${{ steps.existing.outputs.name }}
+        run: scripts/rolling-log.sh download "$TAG" "$NAME" output/movie-404-log.jsonl
+
+      - name: Compare with the baseline
+        id: compare
+        run: node scripts/movie-404/append-movie-404-log.mjs output/movie-urls.json baseline/movie-urls.json output/movie-404-log.jsonl
+
+      # A release a month, as the other logs. Only on the month's first row.
+      - name: Create the month's release
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.release == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+          NOTES: |
+            The film URLs each deploy of clusterflick.com left behind, a month to a release.
+            One JSON row per deploy: every URL that stopped being a page, why it went, and what the movie-redirects Worker now does with it. See scripts/movie-404/append-movie-404-log.mjs for the row shape.
+
+            ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
+        run: scripts/rolling-log.sh ensure-release "$TAG"
+
+      - name: Publish the log
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.month.outputs.tag }}
+        run: scripts/rolling-log.sh publish "$TAG" movie-404-log.jsonl output/movie-404-log.jsonl
+
+      # After the log, so a run whose log failed to publish leaves the baseline
+      # where it was and the next run compares this deploy again. Also on the
+      # very first run, which has a baseline to keep and nothing to log.
+      - name: Create the baseline release
+        if: steps.baseline.outputs.release == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: |
+            The last /movie-urls.json from clusterflick.com that the Film 404 Log compared, replaced by each run. The log itself is on the movie-404-log-YYYYMM releases.
+
+            ⚠️ **Internal telemetry — not licensed.** No rights are granted over it. For data you can use, see https://clusterflick.com/data-licence
+        run: scripts/rolling-log.sh ensure-release "$BASELINE_TAG"
+
+      - name: Move the baseline on
+        if: steps.compare.outputs.changed == 'true' || steps.baseline.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/rolling-log.sh publish "$BASELINE_TAG" movie-urls.json output/movie-urls.json
