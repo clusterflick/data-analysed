@@ -1,0 +1,9 @@
+{
+  "name": "movie-404",
+  "private": true,
+  "description": "Installed on its own by movie-404-log.yml, so the log needs @clusterflick/catalogue and nothing else from this repository's dependencies.",
+  "type": "module",
+  "dependencies": {
+    "@clusterflick/catalogue": "0.7.0"
+  }
+}
