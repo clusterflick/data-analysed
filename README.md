@@ -419,6 +419,12 @@ per deploy to `movie-404-log.jsonl` on this repository's `movie-404-log-YYYYMM`
 release. The comparison is `findLostUrls` from `@clusterflick/catalogue`, the
 module the Worker runs, so a row says what the Worker will actually do.
 
+A map is identified by a hash of its content, and a row by the pair of maps it
+compared, so a deploy whose films didn't change adds nothing and a re-run
+rewrites its row. Not by the map's `generatedAt`: that is when the retrieved
+data was published, which a re-run transform of the same retrieve shares.
+`deployedAt` is when the comparison ran, minutes after the deploy.
+
 Each row holds counts by `kind` (why the URL went: `retitled`, `listing`,
 `pruned`, `lost`) and by outcome (`301 id`, `302 fuzzy-slug`, `404 no-match`,
 …), and every URL with its decision. A URL worth a look carries a `review`

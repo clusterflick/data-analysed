@@ -14,8 +14,14 @@
 // module the Worker runs) says whether it's now a redirect or a 404 - on the
 // day the deploy made it, rather than weeks later when a crawler follows it.
 //
-// One JSONL row per deploy, keyed by the map's `generatedAt`, so a re-run
-// against the same deploy rewrites its row rather than adding a second.
+// One JSONL row per deploy whose map changed, keyed by the pair of maps it
+// compared, so a re-run against the same two maps rewrites its row rather than
+// adding a second. A map is identified by a hash of its content, not by its
+// `generatedAt`: that is when the retrieved data was published, so a deploy
+// built from a re-run transform of the same retrieve carries the same
+// `generatedAt` with different films - which is how the first version of this
+// missed the 19 November test run. `deployedAt` is when the comparison ran,
+// minutes after the deploy was verified live.
 //
 // Writes `changed=true|false` to GITHUB_OUTPUT: false when the map is the
 // one compared last time (a second dispatch for one deploy), which publishes
@@ -23,6 +29,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import {
   findLostUrls,
   MOVIE_URL_MAP_VERSION,
@@ -36,7 +43,8 @@ if (!currentFile || !previousFile || !logFile) {
 }
 
 function readMap(file) {
-  const map = JSON.parse(fs.readFileSync(file, "utf8"));
+  const text = fs.readFileSync(file, "utf8");
+  const map = JSON.parse(text);
   // A map this version of the catalogue doesn't read would be compared
   // wrongly rather than not at all: fail, and keep the last good baseline.
   if (map?.version !== MOVIE_URL_MAP_VERSION) {
@@ -47,7 +55,10 @@ function readMap(file) {
   if (typeof map.generatedAt !== "string" || typeof map.slugs !== "object") {
     throw new Error(`${file} has no generatedAt or slugs`);
   }
-  return map;
+  // The site writes the map deterministically (sorted keys), so the same
+  // films always hash the same.
+  const id = createHash("sha256").update(text).digest("hex").slice(0, 16);
+  return { map, id };
 }
 
 function setOutput(name, value) {
@@ -88,7 +99,7 @@ const count = (items, keyOf) => {
   return Object.fromEntries(Object.entries(counts).sort());
 };
 
-const current = readMap(currentFile);
+const { map: current, id: currentId } = readMap(currentFile);
 
 if (!fs.existsSync(previousFile)) {
   console.log(
@@ -98,9 +109,11 @@ if (!fs.existsSync(previousFile)) {
   process.exit(0);
 }
 
-const previous = readMap(previousFile);
-if (previous.generatedAt === current.generatedAt) {
-  console.log(`${current.generatedAt} was compared already; nothing to add`);
+const { map: previous, id: previousId } = readMap(previousFile);
+// A second dispatch for one deploy, or a deploy whose films didn't change
+// (the site's second deploy of a day only brings in ratings).
+if (previousId === currentId) {
+  console.log(`The live map (${currentId}) is the one compared last; nothing to add`);
   setOutput("changed", "false");
   process.exit(0);
 }
@@ -125,8 +138,10 @@ const urls = lost.map((url) => {
 });
 
 const row = {
-  deployedAt: current.generatedAt,
-  previousDeployedAt: previous.generatedAt,
+  id: `${previousId}..${currentId}`,
+  deployedAt: process.env.DEPLOYED_AT ?? new Date().toISOString(),
+  generatedAt: current.generatedAt,
+  previousGeneratedAt: previous.generatedAt,
   pages: {
     previous: Object.keys(previous.slugs).length,
     current: Object.keys(current.slugs).length,
@@ -147,7 +162,7 @@ const rows = fs.existsSync(logFile)
       .filter(Boolean)
       .map((line) => JSON.parse(line))
   : [];
-const kept = rows.filter((existing) => existing.deployedAt !== row.deployedAt);
+const kept = rows.filter((existing) => existing.id !== row.id);
 kept.push(row);
 kept.sort((a, b) => a.deployedAt.localeCompare(b.deployedAt));
 fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -155,7 +170,7 @@ fs.writeFileSync(logFile, kept.map((r) => JSON.stringify(r)).join("\n") + "\n");
 setOutput("changed", "true");
 
 console.log(
-  `${previous.generatedAt} -> ${current.generatedAt}: ${lost.length} film URLs stopped being pages, ${row.redirected} now redirect, ${row.review} to review`,
+  `${previousId} -> ${currentId} (data from ${current.generatedAt}): ${lost.length} film URLs stopped being pages, ${row.redirected} now redirect, ${row.review} to review`,
 );
 for (const [outcome, n] of Object.entries(row.byOutcome)) {
   console.log(`  ${outcome}: ${n}`);
@@ -166,7 +181,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   const lines = [
     `### Film URLs this deploy left behind`,
     ``,
-    `${previous.generatedAt} → ${current.generatedAt}: **${lost.length}** stopped being pages, **${row.redirected}** now redirect, **${row.review}** to review.`,
+    `Map ${previousId} → ${currentId}, data from ${current.generatedAt}: **${lost.length}** stopped being pages, **${row.redirected}** now redirect, **${row.review}** to review.`,
     ``,
     `| Outcome | URLs |`,
     `| --- | --- |`,

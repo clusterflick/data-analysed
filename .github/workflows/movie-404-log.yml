@@ -113,7 +113,7 @@ jobs:
           TAG: ${{ steps.month.outputs.tag }}
           NOTES: |
             The film URLs each deploy of clusterflick.com left behind, a month to a release.
-            One JSON row per deploy: every URL that stopped being a page, why it went, and what the movie-redirects Worker now does with it. See scripts/movie-404/append-movie-404-log.mjs for the row shape.
+            One JSON row per deploy that changed the site's film pages: every URL that stopped being a page, why it went, and what the movie-redirects Worker now does with it. See scripts/movie-404/append-movie-404-log.mjs for the row shape.
 
             ⚠️ **Internal telemetry — not licensed.** No rights are granted over it and the row shape changes without notice. For data you can use, see https://clusterflick.com/data-licence
         run: scripts/rolling-log.sh ensure-release "$TAG"
