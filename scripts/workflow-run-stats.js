@@ -6,12 +6,24 @@
 // unassisted badge: how often the run finished first time with nobody
 // stepping in.
 //
-// A run counts as unassisted when `run_attempt` is 1 and it succeeded. Those
-// three repos have no auto-rerun workflow, and the `nick-fields/retry`
-// wrappers inside their jobs retry *within* a step, so `run_attempt` only ever
-// goes past 1 because a human clicked "re-run". Anything else that completed —
-// failed, cancelled, or eventually succeeded on a later attempt — counts
-// against the percentage. Runs still in progress are ignored entirely.
+// A run counts as unassisted when it succeeded with nobody stepping in. For
+// transform and match that means `run_attempt` is 1: those repos have no
+// auto-rerun workflow, and the `nick-fields/retry` wrappers inside their jobs
+// retry *within* a step, so `run_attempt` only ever goes past 1 because a
+// human clicked "re-run".
+//
+// Retrieve is the exception (`autoRerun` below). Since 3 Nov 2026
+// data-retrieved's `rerun-failed-retrieve.yml` re-runs a failed run's failed
+// jobs once, as attempt 2, with the workflow's own token - so that attempt's
+// `triggering_actor` is `github-actions[bot]`, where a re-run someone clicked
+// names them. A run that succeeded on that attempt needed no one, and counts
+// as unassisted; the badge says how many got there that way, since a rising
+// share is worth seeing even while the percentage holds. A third attempt, or a
+// second one a person started, counts against it.
+//
+// Anything else that completed - failed, cancelled, or eventually succeeded on
+// an attempt a person started - counts against the percentage. Runs still in
+// progress are ignored entirely.
 //
 // The rest are duration-only, because that percentage would mean something
 // different for each of them. diff, combine and calendar each carry a
@@ -38,6 +50,15 @@
 // attempts is mostly time spent waiting for someone to notice, which says
 // nothing about the pipeline.
 //
+// An automatic re-run is different: its gap is set by the re-run workflow (ten
+// minutes after the last failed job finished), not by anyone noticing. So
+// where `autoRerun` is set, the runs it recovered get a duration badge of
+// their own - time to release, from attempt 1's start (read from that
+// attempt, since the run's own `run_started_at` has moved on) to the run's
+// end. It is kept apart from the clean-run average rather than folded into it,
+// because the two answer different questions: how long a run takes, and how
+// long a release takes when a run needs its second go.
+//
 // Usage: node scripts/workflow-run-stats.js
 //
 // Env:
@@ -60,12 +81,17 @@ const OK_PERCENT = 75;
 
 // In pipeline order. `durationFile` is required; `unassistedFile` is only set
 // on the three workflows where the percentage is meaningful — see above.
+// `autoRerun` names the attempt an automatic re-run makes and the actor it
+// runs as; `recoveredDurationFile` goes with it.
 const TARGETS = [
   {
     repo: "clusterflick/data-retrieved",
     workflow: "retrieve.yml",
     unassistedFile: "retrieve-unassisted.json",
     durationFile: "retrieve-duration.json",
+    // data-retrieved's rerun-failed-retrieve.yml, run with `github.token`.
+    autoRerun: { attempt: 2, actor: "github-actions[bot]" },
+    recoveredDurationFile: "retrieve-recovered-duration.json",
   },
   {
     repo: "clusterflick/data-transformed",
@@ -187,24 +213,65 @@ async function dropNoOpRuns(repo, runs, guardJob) {
   return kept;
 }
 
-function summarise(runs) {
+// True when the run succeeded on the attempt an automatic re-run makes, and
+// that attempt was started by the re-run workflow rather than a person. The
+// run object's `triggering_actor` is the latest attempt's, which on a
+// successful run is the one that succeeded.
+function isAutoRecovered(run, autoRerun) {
+  if (!autoRerun) return false;
+  if (run.conclusion !== "success" || run.run_attempt !== autoRerun.attempt) {
+    return false;
+  }
+  const login = run.triggering_actor && run.triggering_actor.login;
+  if (!login) {
+    throw new Error(
+      `Run ${run.id} (attempt ${run.run_attempt}) has no triggering_actor — cannot tell an automatic re-run from a person's.`,
+    );
+  }
+  return login === autoRerun.actor;
+}
+
+function average(values) {
+  return values.length > 0
+    ? values.reduce((total, value) => total + value, 0) / values.length
+    : null;
+}
+
+// Time to release for a run recovered by an automatic re-run: attempt 1's
+// start to the run's end. The run's own `run_started_at` is the latest
+// attempt's, so attempt 1's is read from that attempt.
+async function timeToRelease(repo, run) {
+  const first = await get(
+    `https://api.github.com/repos/${repo}/actions/runs/${run.id}/attempts/1`,
+    `${repo} run ${run.id} attempt 1`,
+  );
+  if (!first.run_started_at) {
+    throw new Error(`Run ${run.id} attempt 1 has no run_started_at.`);
+  }
+  return Date.parse(run.updated_at) - Date.parse(first.run_started_at);
+}
+
+async function summarise(repo, runs, autoRerun) {
   const completed = runs.filter((run) => run.status === "completed");
-  const unassisted = completed.filter(
+  const firstTime = completed.filter(
     (run) => run.run_attempt === 1 && run.conclusion === "success",
   );
+  const recovered = completed.filter((run) => isAutoRecovered(run, autoRerun));
 
-  const durationsMs = unassisted.map(
+  const durationsMs = firstTime.map(
     (run) => Date.parse(run.updated_at) - Date.parse(run.run_started_at),
   );
-  const averageMs =
-    durationsMs.length > 0
-      ? durationsMs.reduce((total, ms) => total + ms, 0) / durationsMs.length
-      : null;
+  const recoveredMs = [];
+  for (const run of recovered) {
+    recoveredMs.push(await timeToRelease(repo, run));
+  }
 
   return {
     total: completed.length,
-    unassisted: unassisted.length,
-    averageMs,
+    firstTime: firstTime.length,
+    recovered: recovered.length,
+    averageMs: average(durationsMs),
+    recoveredAverageMs: average(recoveredMs),
   };
 }
 
@@ -238,7 +305,9 @@ async function main() {
     const runs = target.guardJob
       ? await dropNoOpRuns(target.repo, allRuns, target.guardJob)
       : allRuns;
-    const { total, unassisted, averageMs } = summarise(runs);
+    const { total, firstTime, recovered, averageMs, recoveredAverageMs } =
+      await summarise(target.repo, runs, target.autoRerun);
+    const unassisted = firstTime + recovered;
 
     console.log(`\n${target.repo} (${target.workflow}) since ${since}`);
 
@@ -261,6 +330,13 @@ async function main() {
         message: "no runs",
         color: "lightgrey",
       });
+      if (target.recoveredDurationFile) {
+        writeBadgeFile(target.recoveredDurationFile, {
+          label,
+          message: "no runs",
+          color: "lightgrey",
+        });
+      }
       continue;
     }
 
@@ -268,14 +344,37 @@ async function main() {
     // figure is still worth having in the run log for the rest.
     const percent = Math.round((unassisted / total) * 100);
     console.log(
-      `  ${unassisted} of ${total} completed first time (${percent}%)`,
+      `  ${firstTime} of ${total} completed first time` +
+        (target.autoRerun
+          ? `, ${recovered} more after the automatic re-run`
+          : "") +
+        ` (${percent}% unassisted)`,
     );
 
     if (target.unassistedFile) {
+      const how = target.autoRerun
+        ? `without a person (${recovered} via auto re-run)`
+        : "first time";
       writeBadgeFile(target.unassistedFile, {
         label,
-        message: `${percent}% - ${unassisted} of ${total} first time`,
+        message: `${percent}% - ${unassisted} of ${total} ${how}`,
         color: percentColour(percent),
+      });
+    }
+
+    if (target.recoveredDurationFile) {
+      if (recoveredAverageMs !== null) {
+        console.log(
+          `  ${formatDuration(recoveredAverageMs)} average time to release after an automatic re-run`,
+        );
+      }
+      writeBadgeFile(target.recoveredDurationFile, {
+        label,
+        message:
+          recoveredAverageMs === null
+            ? "no auto re-runs"
+            : `${formatDuration(recoveredAverageMs)} average with auto re-run`,
+        color: recoveredAverageMs === null ? "lightgrey" : "blue",
       });
     }
 
