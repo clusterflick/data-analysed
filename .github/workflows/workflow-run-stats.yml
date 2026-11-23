@@ -41,6 +41,7 @@ jobs:
           node scripts/publish-badge.js \
             retrieve-unassisted.json \
             retrieve-duration.json \
+            retrieve-recovered-duration.json \
             transform-unassisted.json \
             transform-duration.json \
             diff-duration.json \
